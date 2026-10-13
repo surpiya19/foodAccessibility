@@ -17,6 +17,8 @@ src/                 the pipeline, run in order
   07_robustness_and_figures.py  robustness checks, spatial check, figures
   08_transfer_test.py        compare score versions across cities
   09_store_type_test.py      store-type score: select on Richmond + Baltimore, test on a held-out city (DC)
+  10_all_cities.py           final score in all six cities, with a spatial error model
+  11_story_figures.py        presentation figures (outputs/story/)
 data/
   raw/               large downloads, not in git (FARA Excel)
   processed/<city>/  small tract-level tables produced by the pipeline
