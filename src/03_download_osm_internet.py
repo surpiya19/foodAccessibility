@@ -1,9 +1,9 @@
 # FoodPrint Score - data download (Richmond city, Virginia)
-# Before running, install: pip install osmnx geopandas pandas requests python-dotenv
-# Before running, create a file named .env in this folder with one line:
+# Step 3. Install: pip install -r requirements.txt
+# Before running, create a file named .env in the repo root with one line:
 #   CENSUS_KEY=your_key_here
 # (.env is listed in .gitignore, so the key is never uploaded to GitHub)
-# After running, you will get 3 files:
+# After running, you will get 3 files in data/processed/:
 #   richmond_tracts.geojson   census tract boundaries for Richmond
 #   osm_food_places.csv       locations of fast food / grocery / restaurants
 #   acs_internet.csv          share of households with internet, per tract
@@ -14,18 +14,23 @@ import pandas as pd
 import geopandas as gpd
 import osmnx as ox
 from dotenv import load_dotenv
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+PROCESSED = ROOT / "data" / "processed"
+
 
 STATE_FIPS = "51"    # Virginia
 COUNTY_FIPS = "760"  # Richmond city
 
 # Census API key (free): sign up at https://api.census.gov/data/key_signup.html
 # The key is read from the .env file, so it is not written in this script
-load_dotenv()
+load_dotenv(ROOT / ".env")
 CENSUS_KEY = os.getenv("CENSUS_KEY")
 
 # Stop early with a clear message if the key is missing
 if CENSUS_KEY is None:
-    raise SystemExit("CENSUS_KEY not found. Create a .env file (see .env.example).")
+    raise SystemExit("CENSUS_KEY not found. Copy .env.example to .env and add your key.")
 
 
 # ---------- Part 1: tract boundaries ----------
@@ -38,7 +43,7 @@ tracts = tracts[tracts["COUNTYFP"] == COUNTY_FIPS]
 
 # Keep only the columns we need: GEOID is the 11-digit tract ID
 tracts = tracts[["GEOID", "NAME", "geometry"]]
-tracts.to_file("richmond_tracts.geojson", driver="GeoJSON")
+tracts.to_file(PROCESSED / "richmond_tracts.geojson", driver="GeoJSON")
 print("Number of tracts:", len(tracts))
 
 
@@ -72,7 +77,7 @@ places.loc[places["amenity"] == "fast_food", "category"] = "fast_food"
 places.loc[places["shop"].notna(), "category"] = "grocery"
 
 places = places[["name", "category", "amenity", "shop", "lat", "lon"]]
-places.to_csv("osm_food_places.csv", index=False)
+places.to_csv(PROCESSED / "osm_food_places.csv", index=False)
 print("Total number of places:", len(places))
 print(places["category"].value_counts())
 
@@ -101,5 +106,5 @@ acs["no_internet"] = acs["B28002_013E"].astype(float)
 acs["internet_share"] = 1 - acs["no_internet"] / acs["households"]
 
 acs = acs[["GEOID", "households", "no_internet", "internet_share"]]
-acs.to_csv("acs_internet.csv", index=False)
+acs.to_csv(PROCESSED / "acs_internet.csv", index=False)
 print("Number of ACS tracts:", len(acs))

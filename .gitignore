@@ -1,2 +1,15 @@
+# Secrets and environments
 .env
 .venv/
+__pycache__/
+.DS_Store
+
+# Raw data is too large for GitHub (the FARA Excel is ~110 MB) - download it, see src/02_extract_fara.py
+data/raw/
+
+# Old / superseded material kept locally only
+archive/
+
+# Slides and Word drafts live outside the code repo
+docs/*.pptx
+docs/*.docx

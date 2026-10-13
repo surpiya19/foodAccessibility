@@ -1,5 +1,5 @@
-# FoodPrint Score - step 3: build the CONSTRUCT indicators (Richmond city, Virginia)
-# Run download_data.py and clean_data.py first. This script reads:
+# FoodPrint Score - step 5: build the CONSTRUCT indicators (Richmond city, Virginia)
+# Run 03_download_osm_internet.py and 04_clean_osm.py first. This script reads (from data/processed/):
 #   richmond_tracts.geojson, osm_food_places_clean.csv, acs_internet.csv
 # It writes:
 #   construct_features.csv   one row per tract, with the two indicators:
@@ -7,6 +7,10 @@
 
 import pandas as pd
 import geopandas as gpd
+from pathlib import Path
+
+PROCESSED = Path(__file__).resolve().parent.parent / "data" / "processed"
+
 
 RATIO_RADIUS = 1609     # 1 mile in meters, used for the fast-food:grocery ratio
 DELIVERY_RADIUS = 5000  # 5 km in meters, used for the delivery-access proxy
@@ -14,9 +18,9 @@ DELIVERY_RADIUS = 5000  # 5 km in meters, used for the delivery-access proxy
 
 # ---------- Part 1: read the files ----------
 # Read GEOID as text so the 11-digit ID is not turned into a number
-tracts = gpd.read_file("richmond_tracts.geojson")
-places = pd.read_csv("osm_food_places_clean.csv")
-acs = pd.read_csv("acs_internet.csv", dtype={"GEOID": str})
+tracts = gpd.read_file(PROCESSED / "richmond_tracts.geojson")
+places = pd.read_csv(PROCESSED / "osm_food_places_clean.csv")
+acs = pd.read_csv(PROCESSED / "acs_internet.csv", dtype={"GEOID": str})
 
 print("Tracts:", len(tracts))
 print("Places:", len(places))
@@ -93,4 +97,4 @@ print("Missing values in each column:")
 print(features.isna().sum())
 print(features[["fast_food_ratio", "delivery_proxy"]].describe())
 
-features.to_csv("construct_features.csv", index=False)
+features.to_csv(PROCESSED / "construct_features.csv", index=False)

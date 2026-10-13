@@ -1,15 +1,18 @@
-# FoodPrint Score - step 2: clean the data (Richmond city, Virginia)
-# Run download_data.py first. This script reads:
+# FoodPrint Score - step 4: clean the OpenStreetMap data (Richmond city, Virginia)
+# Run 03_download_osm_internet.py first. This script reads (from data/processed/):
 #   osm_food_places.csv
 # It writes:
 #   osm_food_places_clean.csv   cleaned list of food places
-# Next step: build_features.py
+# Next step: 05_build_features.py
 
 import pandas as pd
+from pathlib import Path
+
+PROCESSED = Path(__file__).resolve().parent.parent / "data" / "processed"
 
 
 # ---------- Part 1: read the file ----------
-places = pd.read_csv("osm_food_places.csv")
+places = pd.read_csv(PROCESSED / "osm_food_places.csv")
 print("Places before cleaning:", len(places))
 
 
@@ -49,4 +52,4 @@ print("Places after removing duplicates:", len(places))
 
 # ---------- Part 5: check and save ----------
 print(places["category"].value_counts())
-places.to_csv("osm_food_places_clean.csv", index=False)
+places.to_csv(PROCESSED / "osm_food_places_clean.csv", index=False)
