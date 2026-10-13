@@ -1,0 +1,13 @@
+city,version,outcome,coef,lo,hi,p,dr2,loo_gain,loo_gain_pct,pass
+richmond,Chosen: C. Store mix + FARA,obesity_pct,2.034,0.8913,3.1767,0.0007,0.0616,0.3717,7.0262,True
+richmond,Chosen: C. Store mix + FARA,diabetes_pct,2.1735,1.2804,3.0665,0.0,0.1254,0.503,10.2931,True
+richmond,FARA-only (comparison),obesity_pct,1.871,0.1946,3.5474,0.0292,0.0504,0.2227,4.2102,True
+richmond,FARA-only (comparison),diabetes_pct,2.2984,1.1673,3.4296,0.0001,0.1355,0.5079,10.3943,True
+baltimore,Chosen: C. Store mix + FARA,obesity_pct,1.1478,0.4514,1.8442,0.0014,0.0204,0.1189,2.6639,True
+baltimore,Chosen: C. Store mix + FARA,diabetes_pct,1.0559,0.541,1.5707,0.0001,0.0288,0.1317,3.5613,True
+baltimore,FARA-only (comparison),obesity_pct,0.5387,-0.3304,1.4078,0.2229,0.0044,-0.0066,-0.1479,False
+baltimore,FARA-only (comparison),diabetes_pct,0.8209,0.3784,1.2633,0.0003,0.0169,0.0742,2.007,True
+dc,Chosen: C. Store mix + FARA,obesity_pct,1.5145,0.975,2.0541,0.0,0.0465,0.3237,9.1167,True
+dc,Chosen: C. Store mix + FARA,diabetes_pct,1.1077,0.7335,1.482,0.0,0.0724,0.2445,9.8781,True
+dc,FARA-only (comparison),obesity_pct,0.6477,0.3125,0.9828,0.0002,0.0085,0.0559,1.5741,True
+dc,FARA-only (comparison),diabetes_pct,0.5114,0.1986,0.8242,0.0015,0.0153,0.0439,1.7752,True

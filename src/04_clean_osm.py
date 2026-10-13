@@ -1,14 +1,16 @@
-# FoodPrint Score - step 4: clean the OpenStreetMap data (Richmond city, Virginia)
-# Run 03_download_osm_internet.py first. This script reads (from data/processed/):
+# FoodPrint Score - step 4: clean the OpenStreetMap data
+# Usage: python src/04_clean_osm.py [region]
+# Run 03_download_osm_internet.py first. This script reads (from data/processed/<region>/):
 #   osm_food_places.csv
 # It writes:
 #   osm_food_places_clean.csv   cleaned list of food places
 # Next step: 05_build_features.py
 
 import pandas as pd
-from pathlib import Path
 
-PROCESSED = Path(__file__).resolve().parent.parent / "data" / "processed"
+from regions import get_region
+
+PROCESSED = get_region()["processed"]
 
 
 # ---------- Part 1: read the file ----------

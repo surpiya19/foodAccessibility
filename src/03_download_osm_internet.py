@@ -1,10 +1,10 @@
-# FoodPrint Score - data download (Richmond city, Virginia)
-# Step 3. Install: pip install -r requirements.txt
+# FoodPrint Score - step 3: tract boundaries, OSM food places, ACS internet access
+# Usage: python src/03_download_osm_internet.py [region]
 # Before running, create a file named .env in the repo root with one line:
 #   CENSUS_KEY=your_key_here
 # (.env is listed in .gitignore, so the key is never uploaded to GitHub)
-# After running, you will get 3 files in data/processed/:
-#   richmond_tracts.geojson   census tract boundaries for Richmond
+# After running, you will get 3 files in data/processed/<region>/:
+#   tracts.geojson            census tract boundaries
 #   osm_food_places.csv       locations of fast food / grocery / restaurants
 #   acs_internet.csv          share of households with internet, per tract
 
@@ -14,14 +14,13 @@ import pandas as pd
 import geopandas as gpd
 import osmnx as ox
 from dotenv import load_dotenv
-from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent.parent
-PROCESSED = ROOT / "data" / "processed"
+from regions import ROOT, get_region
 
-
-STATE_FIPS = "51"    # Virginia
-COUNTY_FIPS = "760"  # Richmond city
+REGION = get_region()
+PROCESSED = REGION["processed"]
+STATE_FIPS = REGION["state"]
+COUNTY_FIPS = REGION["county"]
 
 # Census API key (free): sign up at https://api.census.gov/data/key_signup.html
 # The key is read from the .env file, so it is not written in this script
@@ -34,24 +33,24 @@ if CENSUS_KEY is None:
 
 
 # ---------- Part 1: tract boundaries ----------
-# Census 2020 tract boundary file for Virginia (whole state)
-tract_url = "https://www2.census.gov/geo/tiger/TIGER2020/TRACT/tl_2020_51_tract.zip"
+# Census 2020 tract boundary file for the whole state
+tract_url = f"https://www2.census.gov/geo/tiger/TIGER2020/TRACT/tl_2020_{STATE_FIPS}_tract.zip"
 tracts = gpd.read_file(tract_url)
 
-# Keep only Richmond city
+# Keep only our county
 tracts = tracts[tracts["COUNTYFP"] == COUNTY_FIPS]
 
 # Keep only the columns we need: GEOID is the 11-digit tract ID
 tracts = tracts[["GEOID", "NAME", "geometry"]]
-tracts.to_file(PROCESSED / "richmond_tracts.geojson", driver="GeoJSON")
+tracts.to_file(PROCESSED / "tracts.geojson", driver="GeoJSON")
 print("Number of tracts:", len(tracts))
 
 
 # ---------- Part 2: OpenStreetMap food places ----------
-# Download places within 20 km of downtown Richmond
+# Download places within 20 km of downtown
 # (wider than the city, because places just outside the city limits
 #  still affect people living inside the city)
-center = (37.5407, -77.4360)  # (latitude, longitude)
+center = REGION["center"]     # (latitude, longitude)
 distance = 20000              # in meters
 
 tags = {

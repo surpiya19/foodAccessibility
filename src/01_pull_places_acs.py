@@ -1,28 +1,28 @@
-# FoodPrint Score - step 1: pull health outcomes and income controls (Richmond city, Virginia)
+# FoodPrint Score - step 1: pull health outcomes and income controls
+# Usage: python src/01_pull_places_acs.py [region]   (default richmond, see src/regions.py)
 # Replaces the old notebook 02_pull_and_join_richmond_data.ipynb (kept in archive/).
 #
 # Pulls:
 #   CDC PLACES 2025 (tract level): obesity and diabetes prevalence      -> the outcomes
 #   Census ACS 5-year:             median household income, poverty rate -> the income controls
 # Writes:
-#   data/processed/places_acs_richmond.csv   one row per tract (75 tracts)
+#   data/processed/<region>/places_acs.csv   one row per tract
 #
 # Needs internet and a free Census API key in .env (CENSUS_KEY=...).
 # Get one at https://api.census.gov/data/key_signup.html
 
 import os
-from pathlib import Path
-
 import pandas as pd
 import requests
 from dotenv import load_dotenv
 
-ROOT = Path(__file__).resolve().parent.parent
-PROCESSED = ROOT / "data" / "processed"
+from regions import ROOT, get_region
 
-STATE_FIPS = "51"          # Virginia
-COUNTY_FIPS = "760"        # Richmond city (3 digits, no state prefix)
-COUNTY_FIPS_FULL = "51760" # as used by PLACES
+REGION = get_region()
+PROCESSED = REGION["processed"]
+STATE_FIPS = REGION["state"]
+COUNTY_FIPS = REGION["county"]
+COUNTY_FIPS_FULL = REGION["fips"]  # as used by PLACES
 ACS_YEAR = 2023
 
 load_dotenv(ROOT / ".env")
@@ -51,6 +51,10 @@ data = safe_get_json(
     },
 )
 places = pd.DataFrame(data)
+if places.empty:
+    # PLACES 2025 has no 2023-BRFSS estimates for Kentucky and Pennsylvania
+    raise SystemExit(f"PLACES returned no obesity/diabetes rows for county {COUNTY_FIPS_FULL}. "
+                     "Check the PLACES release notes for missing states.")
 places["data_value"] = pd.to_numeric(places["data_value"], errors="coerce")
 # long to wide: one row per tract
 places = (places.pivot_table(index="locationname", columns="measureid",
@@ -85,6 +89,5 @@ print("ACS tracts:", len(acs))
 # ---------- Part 3: join and save ----------
 # -666666666 (Census "no estimate") is left in here and set to NaN in step 6
 merged = places.merge(acs, on="tract_geoid", how="outer")
-print("Joined tracts:", len(merged), "(expect 75)")
-PROCESSED.mkdir(parents=True, exist_ok=True)
-merged.to_csv(PROCESSED / "places_acs_richmond.csv", index=False)
+print("Joined tracts:", len(merged))
+merged.to_csv(PROCESSED / "places_acs.csv", index=False)

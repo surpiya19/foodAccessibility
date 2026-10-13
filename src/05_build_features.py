@@ -1,15 +1,17 @@
-# FoodPrint Score - step 5: build the CONSTRUCT indicators (Richmond city, Virginia)
-# Run 03_download_osm_internet.py and 04_clean_osm.py first. This script reads (from data/processed/):
-#   richmond_tracts.geojson, osm_food_places_clean.csv, acs_internet.csv
+# FoodPrint Score - step 5: build the CONSTRUCT indicators
+# Usage: python src/05_build_features.py [region]
+# Run 03_download_osm_internet.py and 04_clean_osm.py first. This script reads (from data/processed/<region>/):
+#   tracts.geojson, osm_food_places_clean.csv, acs_internet.csv
 # It writes:
 #   construct_features.csv   one row per tract, with the two indicators:
 #                            fast_food_ratio and delivery_proxy
 
 import pandas as pd
 import geopandas as gpd
-from pathlib import Path
 
-PROCESSED = Path(__file__).resolve().parent.parent / "data" / "processed"
+from regions import get_region
+
+PROCESSED = get_region()["processed"]
 
 
 RATIO_RADIUS = 1609     # 1 mile in meters, used for the fast-food:grocery ratio
@@ -18,7 +20,7 @@ DELIVERY_RADIUS = 5000  # 5 km in meters, used for the delivery-access proxy
 
 # ---------- Part 1: read the files ----------
 # Read GEOID as text so the 11-digit ID is not turned into a number
-tracts = gpd.read_file(PROCESSED / "richmond_tracts.geojson")
+tracts = gpd.read_file(PROCESSED / "tracts.geojson")
 places = pd.read_csv(PROCESSED / "osm_food_places_clean.csv")
 acs = pd.read_csv(PROCESSED / "acs_internet.csv", dtype={"GEOID": str})
 

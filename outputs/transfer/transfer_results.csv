@@ -1,0 +1,13 @@
+city,outcome,version,coef,lo,hi,p,dr2,loo_gain,pass
+richmond,obesity_pct,Original,0.5992,-0.5799,1.7784,0.3142,0.0053,-0.0217,False
+richmond,obesity_pct,Revised,1.714,0.2703,3.1576,0.0207,0.0424,0.2001,True
+richmond,obesity_pct,FARA-only,1.871,0.1946,3.5474,0.0292,0.0504,0.2227,True
+richmond,diabetes_pct,Original,1.0645,0.147,1.9821,0.0236,0.0299,0.0864,True
+richmond,diabetes_pct,Revised,2.1498,1.1404,3.1591,0.0001,0.1188,0.4526,True
+richmond,diabetes_pct,FARA-only,2.2984,1.1673,3.4296,0.0001,0.1355,0.5079,True
+baltimore,obesity_pct,Original,-0.0234,-1.058,1.0112,0.9645,0.0,-0.0545,False
+baltimore,obesity_pct,Revised,0.3977,-0.4479,1.2433,0.3547,0.0024,-0.0192,False
+baltimore,obesity_pct,FARA-only,0.5387,-0.3304,1.4078,0.2229,0.0044,-0.0066,False
+baltimore,diabetes_pct,Original,0.2637,-0.4127,0.9402,0.4428,0.0018,-0.0193,False
+baltimore,diabetes_pct,Revised,0.7013,0.226,1.1767,0.004,0.0125,0.0491,True
+baltimore,diabetes_pct,FARA-only,0.8209,0.3784,1.2633,0.0003,0.0169,0.0742,True

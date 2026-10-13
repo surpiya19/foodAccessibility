@@ -1,15 +1,15 @@
 # FoodPrint Score - step 6: build the score, validate it, rank the tracts
-# (Richmond city, Virginia)
+# Usage: python src/06_score_and_validate.py [region]
 #
 # Reads:
-#   data/processed/places_acs_richmond.csv  from step 1 (PLACES obesity/diabetes + ACS income/poverty)
-#   data/processed/fara2025_richmond.csv    from step 2 (USDA FARA 2025, 2020 tracts)
-#   data/processed/construct_features.csv   OPTIONAL, from step 5 (fast-food ratio, delivery proxy)
+#   data/processed/<region>/places_acs.csv  from step 1 (PLACES obesity/diabetes + ACS income/poverty)
+#   data/processed/<region>/fara2025.csv    from step 2 (USDA FARA 2025, 2020 tracts)
+#   data/processed/<region>/construct_features.csv   OPTIONAL, from step 5 (fast-food ratio, delivery proxy)
 # Writes:
-#   data/processed/master_tract_table.csv   all inputs and features, one row per tract
-#   outputs/foodprint_ranked_tracts.csv     tracts ranked by priority
-#   outputs/validation_results.md           regression results
-#   outputs/validation_plot.png
+#   data/processed/<region>/master_tract_table.csv   all inputs and features, one row per tract
+#   outputs/<region>/foodprint_ranked_tracts.csv     tracts ranked by priority
+#   outputs/<region>/validation_results.md           regression results
+#   outputs/<region>/validation_plot.png
 #
 # Install: pip install -r requirements.txt
 
@@ -19,21 +19,19 @@ import statsmodels.formula.api as smf
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
-from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent.parent
-PROCESSED = ROOT / "data" / "processed"
-OUTPUTS = ROOT / "outputs"
+from regions import get_region
 
-
-COUNTY_FIPS_FULL = "51760"
-FARA_CACHE = PROCESSED / "fara2025_richmond.csv"
+REGION = get_region()
+PROCESSED = REGION["processed"]
+OUTPUTS = REGION["outputs"]
+FARA_CACHE = PROCESSED / "fara2025.csv"
 CONSTRUCT = PROCESSED / "construct_features.csv"
 ACS_MISSING_CODES = [-666666666, -999999999, -888888888, -222222222]  # Census "no estimate" codes
 
 
 # ---------- Part 1: outcomes and income controls ----------
-base = pd.read_csv(PROCESSED / "places_acs_richmond.csv", dtype={"tract_geoid": str})
+base = pd.read_csv(PROCESSED / "places_acs.csv", dtype={"tract_geoid": str})
 base = base[["tract_geoid", "obesity_pct", "diabetes_pct", "median_hh_income", "poverty_rate_pct"]]
 # -666666666 = no estimate; if left in it wrecks the income mean
 base["median_hh_income"] = base["median_hh_income"].replace(ACS_MISSING_CODES, np.nan)
@@ -43,7 +41,7 @@ print("Tracts with missing income:", base["median_hh_income"].isna().sum())
 
 # ---------- Part 2: FARA 2025 (2020 tract boundaries) ----------
 if not FARA_CACHE.exists():
-    raise SystemExit("Run src/02_extract_fara.py first.")
+    raise SystemExit(f"Run src/02_extract_fara.py {REGION['key']} first.")
 fara = pd.read_csv(FARA_CACHE, dtype={"CensusTract20": str}).rename(columns={"CensusTract20": "tract_geoid"})
 fara = fara[["tract_geoid", "POP2020", "PCTGQTRS",
              "DD_SRAM_lapophalfshare", "DD_SRAM_lahunvhalfshare", "DD_SRAM_lasnaphalfshare"]]
@@ -70,8 +68,15 @@ if CONSTRUCT.exists():
     features = ["fast_food_ratio", "delivery_proxy"] + features
     print("Using OpenStreetMap features from", CONSTRUCT)
 else:
-    print("NOTE: data/processed/construct_features.csv not found - run src/03, 04 and 05",
+    print(f"NOTE: {CONSTRUCT} not found - run src/03, 04 and 05",
           "first to add fast_food_ratio and delivery_proxy.")
+
+
+STORES = PROCESSED / "store_features.csv"
+if STORES.exists():
+    stores = pd.read_csv(STORES, dtype={"GEOID": str}).rename(columns={"GEOID": "tract_geoid"})
+    master = master.merge(stores, on="tract_geoid", how="left")
+    print("Added SNAP store-type features from", STORES)
 
 
 # ---------- Part 4: combine into one FoodPrint Score ----------
@@ -157,7 +162,7 @@ ranked[out_cols].round(3).to_csv(OUTPUTS / "foodprint_ranked_tracts.csv", index=
 
 
 # ---------- Part 7: write the results ----------
-lines = ["# FoodPrint Score - Validation Results (Richmond, VA)", "",
+lines = [f"# FoodPrint Score - Validation Results ({REGION['name']})", "",
          f"Tracts modeled: **{n}** of {len(master)}. Dropped: {', '.join(dropped) or 'none'} "
          "(missing ACS income or >50% group quarters).", "",
          f"Score components (equal-weight z-scores, higher = worse): {', '.join(features)}", "",
@@ -215,4 +220,4 @@ plt.tight_layout()
 plt.savefig(OUTPUTS / "validation_plot.png", dpi=150)
 
 print("\n".join(lines[:20]))
-print("\nWrote data/processed/master_tract_table.csv and outputs/ (ranked tracts, results, plot)")
+print(f"\nWrote {PROCESSED / 'master_tract_table.csv'} and {OUTPUTS}/")

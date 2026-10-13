@@ -1,0 +1,18 @@
+{
+  "chosen": "C. Store mix + FARA",
+  "features": [
+    "limited_share",
+    "dist_full_service_km",
+    "access_distance",
+    "affordability_proxy"
+  ],
+  "dev_cities": [
+    "richmond",
+    "baltimore"
+  ],
+  "avg_loo_gain_pct": {
+    "A. Store mix": 0.713,
+    "B. Store mix + affordability": 3.996,
+    "C. Store mix + FARA": 5.886
+  }
+}

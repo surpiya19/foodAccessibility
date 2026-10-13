@@ -13,3 +13,7 @@ archive/
 # Slides and Word drafts live outside the code repo
 docs/*.pptx
 docs/*.docx
+
+# osmnx download cache
+cache/
+*.bak
