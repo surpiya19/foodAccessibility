@@ -9,3 +9,5 @@ statsmodels
 matplotlib
 libpysal
 spreg
+streamlit>=1.50
+plotly>=6
