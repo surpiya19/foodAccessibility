@@ -18,5 +18,7 @@ The spatial error model lets prediction errors be correlated between neighboring
 | Memphis (Shelby Co.), TN | held-out | 242 | Diabetes | +1.09 (+0.58, +1.60) | 0.000 | +0.025 | +4.4% | yes | +0.83 (+0.41, +1.24) | 0.000 | 0.72 | 0.32 |
 | Columbus (Franklin Co.), OH | held-out | 325 | Obesity | +0.93 (+0.50, +1.35) | 0.000 | +0.019 | +2.2% | yes | +0.43 (+0.09, +0.78) | 0.014 | 0.88 | 0.51 |
 | Columbus (Franklin Co.), OH | held-out | 325 | Diabetes | +0.86 (+0.45, +1.26) | 0.000 | +0.034 | +2.4% | yes | +0.35 (+0.05, +0.66) | 0.023 | 0.88 | 0.53 |
+| Rural Virginia | held-out | 614 | Obesity | +0.38 (+0.09, +0.67) | 0.011 | +0.007 | +0.5% | yes | +0.19 (-0.01, +0.38) | 0.063 | 0.74 | 0.57 |
+| Rural Virginia | held-out | 614 | Diabetes | +0.40 (+0.23, +0.57) | 0.000 | +0.016 | +1.8% | yes | +0.29 (+0.15, +0.42) | 0.000 | 0.61 | 0.44 |
 
 Philadelphia is excluded: CDC PLACES 2025 has no 2023-BRFSS estimates for Pennsylvania.
