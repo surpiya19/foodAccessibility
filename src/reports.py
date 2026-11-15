@@ -1,6 +1,6 @@
-# FoodPrint Score - downloadable PDF reports.
-#   tract_report(...)  -> bytes   one tract: what is suggested and why
-#   place_report(...)  -> bytes   one place: alerts + every "Act" tract with its suggestion
+# FoodPrint Score - PDF reports.
+#   tract_report(...)  -> bytes   one tract: recommendation, basis, profile, validation
+#   place_report(...)  -> bytes   one area: interventions by tract count, ranked priority tracts
 # Used by dashboard/app.py (download buttons). Also runnable for a quick check:
 #   python src/reports.py richmond            writes outputs/reports/richmond_*.pdf
 
@@ -16,37 +16,36 @@ import pandas as pd
 from fpdf import FPDF
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from recommendations import FEATURES, FEATURE_LABELS, INTERVENTIONS_ALL, alerts, fmt_value
+from recommendations import FEATURES, INTERVENTIONS_ALL, alerts, fmt_value, split_reasons
 
 INK, BLUE, GREY, LIGHT = (11, 11, 11), (42, 120, 214), (110, 110, 105), (240, 239, 236)
 
 DATA_SOURCES = [
-    ("CDC PLACES, 2025 release", "obesity and diabetes by tract (modeled estimates, the outcomes)"),
-    ("Census ACS 5-year, 2023", "median household income and poverty rate (the baseline)"),
-    ("USDA Food Access Research Atlas, 2025", "people and SNAP households far from a SNAP store"),
-    ("USDA SNAP retailer history", "store types; stores open on June 30, 2023"),
-    ("Census TIGER 2020", "tract boundaries"),
+    ("CDC PLACES, 2025 release", "tract obesity and diabetes prevalence (model-based estimates)"),
+    ("Census ACS 5-year, 2019-2023", "median household income, poverty rate"),
+    ("USDA Food Access Research Atlas, 2025", "residents and SNAP households far from a SNAP store"),
+    ("USDA SNAP Retailer Locator, historical", "store type and location, stores active June 30, 2023"),
+    ("Census TIGER/Line 2020", "tract boundaries"),
 ]
 LIMITS = [
-    "Not causal. The score shows where to look first; a funded pilot is the real test.",
-    "Tracts, not people. Results describe neighborhoods and say nothing about any one resident.",
-    "Outcomes are estimates. CDC PLACES values are modeled from surveys and demographics.",
-    "Affordability is a proxy: SNAP households far from a store, not real prices.",
-    "Store data can lag openings and closures. Check locally before acting.",
-    "Distance features can overstate the problem where most households own a car.",
-    "A high score describes stores and distance, not the people who live there.",
+    "The score flags where to look; it does not show that food access causes obesity or diabetes. "
+    "A pilot with an evaluation is the real test.",
+    "Results describe tracts, not individual residents.",
+    "PLACES prevalence figures are model-based estimates, not clinical counts.",
+    "Affordability is approximated by SNAP households far from a store. Food prices are not measured.",
+    "Store lists lag openings and closures. Confirm locally before committing funds.",
+    "Distance matters less where most households have a car.",
 ]
 METHOD = (
-    "The FoodPrint Score combines four inputs with equal weight: the share of nearby SNAP stores that "
-    "are convenience, dollar or small stores; distance to the nearest supermarket; the share of people "
-    "far from a SNAP store; and the share of households that use SNAP and live far from a store. Each "
-    "input is standardized within the place, averaged, and rescaled to 0-100 (100 = worst food "
-    "environment in that place). The inputs were chosen on Richmond and Baltimore, then locked and "
-    "tested on places the score had never seen. A place passes when, after controlling for poverty and "
-    "income, the score's effect is above zero in a spatial regression (95% interval) AND it lowers "
-    "leave-one-out prediction error compared with income and poverty alone. A priority tract has a score "
-    "above the place median AND more of the validated outcome than income predicts. Suggestions come "
-    "from the inputs where the tract is in the worst 30% of its place."
+    "Four factors, weighted equally: share of nearby SNAP stores that are corner, dollar or small stores; "
+    "distance to the nearest supermarket; share of residents far from a SNAP store; and share of "
+    "households on SNAP and far from a store. Each is standardized within the area, averaged, and scaled "
+    "0-100 (100 = worst in the area). The factors were selected using Richmond and Baltimore and then "
+    "fixed before testing elsewhere. An area passes if, controlling for poverty and log median income, "
+    "the score's coefficient in a spatial error model is positive (95% CI above zero) and it lowers "
+    "leave-one-out prediction error. Priority tracts score above the area median and have higher "
+    "prevalence of the validated outcome than income and poverty predict. Recommendations follow from "
+    "the factors on which a tract falls in the worst 30% of its area."
 )
 
 
@@ -68,19 +67,16 @@ class Report(FPDF):
         self.add_page()
 
     def header(self):
-        self.set_font("Helvetica", "B", 9); self.set_text_color(*BLUE)
-        self.cell(0, 5, "FOODPRINT SCORE", new_x="LMARGIN", new_y="NEXT")
         if self.page_no() == 1:
             self.set_font("Helvetica", "B", 18); self.set_text_color(*INK)
-            self.multi_cell(0, 8, self.t, new_x="LMARGIN", new_y="NEXT")
+            self.multi_cell(0, 8, self.t, align="L", new_x="LMARGIN", new_y="NEXT")
             self.set_font("Helvetica", "", 10); self.set_text_color(*GREY)
             self.multi_cell(0, 5, self.sub, new_x="LMARGIN", new_y="NEXT")
         self.ln(3)
 
     def footer(self):
         self.set_y(-13); self.set_font("Helvetica", "", 8); self.set_text_color(*GREY)
-        self.cell(0, 5, clean(f"Generated {date.today():%B %d, %Y}. A prioritization tool, not a diagnosis "
-                              f"or causal claim.   Page {self.page_no()}"), align="C")
+        self.cell(0, 5, clean(f"FoodPrint Score  |  {date.today():%b %d, %Y}  |  {self.page_no()}"), align="C")
 
     def h2(self, text):
         self.ln(2); self.set_font("Helvetica", "B", 12); self.set_text_color(*INK)
@@ -88,13 +84,13 @@ class Report(FPDF):
 
     def para(self, text, size=10, color=INK, style=""):
         self.set_font("Helvetica", style, size); self.set_text_color(*color)
-        self.multi_cell(0, 5, clean(text), new_x="LMARGIN", new_y="NEXT")
+        self.multi_cell(0, 5, clean(text), align="L", new_x="LMARGIN", new_y="NEXT")
 
     def bullets(self, items, size=9.5):
         self.set_font("Helvetica", "", size); self.set_text_color(*INK)
         for it in items:
             self.set_x(self.l_margin + 2)
-            self.multi_cell(0, 4.8, clean("-  " + it), new_x="LMARGIN", new_y="NEXT")
+            self.multi_cell(0, 4.8, clean("-  " + it), align="L", new_x="LMARGIN", new_y="NEXT")
 
     def callout(self, title, body, fill=(229, 239, 251)):
         self.set_fill_color(*fill); self.set_draw_color(*BLUE)
@@ -102,7 +98,7 @@ class Report(FPDF):
         self.multi_cell(0, 6, clean(title), fill=True, border="LTR", padding=(2, 3, 0, 3),
                         new_x="LMARGIN", new_y="NEXT")
         self.set_font("Helvetica", "", 10)
-        self.multi_cell(0, 5, clean(body), fill=True, border="LBR", padding=(1, 3, 2, 3),
+        self.multi_cell(0, 5, clean(body), fill=True, align="L", border="LBR", padding=(1, 3, 2, 3),
                         new_x="LMARGIN", new_y="NEXT")
         self.ln(2)
 
@@ -119,7 +115,7 @@ class Report(FPDF):
             self.set_text_color(*GREY); self.multi_cell(w1, h, clean(k), fill=True, new_x="RIGHT", new_y="TOP")
             self.set_xy(self.l_margin + w1, y)
             self.set_text_color(*INK)
-            self.multi_cell(self.epw - w1, 5.5, clean(v), fill=True, new_x="LMARGIN", new_y="NEXT")
+            self.multi_cell(self.epw - w1, 5.5, clean(v), fill=True, align="L", new_x="LMARGIN", new_y="NEXT")
             self.set_y(y + h)
 
     def grid(self, header, rows, widths, size=8.5):
@@ -141,19 +137,18 @@ class Report(FPDF):
 
 
 def _driver_chart(t):
-    labels = [FEATURE_LABELS[f] for f in FEATURES][::-1]
+    labels = [INTERVENTIONS_ALL[f]["short"] for f in FEATURES][::-1]
     vals = [t.get(f"pct_{f}") for f in FEATURES][::-1]
-    drivers = {t.get("main_driver")} | {f for f in FEATURES if pd.notna(t.get(f"pct_{f}")) and
-                                         INTERVENTIONS_ALL[f]["name"] in str(t.get("also_consider", ""))}
-    colors = ["#2a78d6" if f in drivers else "#b9c9dd" for f in FEATURES][::-1]
-    fig, ax = plt.subplots(figsize=(7.2, 2.3), dpi=200)
+    drivers = {t.get("main_driver")} | {f for f in FEATURES
+                                         if INTERVENTIONS_ALL[f]["name"] in str(t.get("also_consider", ""))}
+    colors = ["#2a78d6" if f in drivers else "#c4ccd6" for f in FEATURES][::-1]
+    fig, ax = plt.subplots(figsize=(7.2, 2.1), dpi=200)
     ax.barh(labels, [0 if pd.isna(v) else v for v in vals], color=colors, height=0.55)
     for i, v in enumerate(vals):
-        ax.text((0 if pd.isna(v) else v) + 1.5, i, "no data" if pd.isna(v) else f"{int(v)}", va="center", fontsize=8)
-    ax.axvline(50, color="#9a9a94", ls=":", lw=1); ax.axvline(70, color="#b02a2a", ls="--", lw=0.8)
-    ax.text(70.5, len(vals) - 0.45, "driver line (70)", fontsize=7, color="#b02a2a")
-    ax.set_xlim(0, 108); ax.set_xlabel("Percentile within this place (100 = worst)", fontsize=8)
-    ax.tick_params(labelsize=8); [ax.spines[s].set_visible(False) for s in ("top", "right")]
+        ax.text((0 if pd.isna(v) else v) + 1.5, i, "n/a" if pd.isna(v) else f"{int(v)}", va="center", fontsize=8)
+    ax.axvline(70, color="#888", ls="--", lw=0.8)
+    ax.set_xlim(0, 105); ax.set_xlabel("Percentile within area (100 = worst); dashed line = worst 30%", fontsize=8)
+    ax.tick_params(labelsize=8); [ax.spines[k].set_visible(False) for k in ("top", "right")]
     fig.tight_layout()
     buf = io.BytesIO(); fig.savefig(buf, format="png"); plt.close(fig)
     return buf.getvalue()
@@ -168,12 +163,10 @@ def _evidence_rows(results, place):
             continue
         x = x.iloc[0]
         ok = (x["sem_lo"] > 0) and (x["loo_gain_pct"] > 0)
-        rows.append((f"{label}: {'PASS' if ok else 'did not pass'}",
-                     f"{x['sem_coef']:+.2f} pts per 1 SD of score beyond income "
-                     f"(95% CI {x['sem_lo']:+.2f} to {x['sem_hi']:+.2f}). "
-                     + (f"Cuts prediction error by {x['loo_gain_pct']:.1f}% vs income alone."
-                        if x["loo_gain_pct"] > 0 else
-                        f"Does not cut prediction error vs income alone ({x['loo_gain_pct']:+.1f}%).")))
+        loo = (f"prediction error {x['loo_gain_pct']:.1f}% lower than income alone" if x["loo_gain_pct"] > 0
+               else f"no reduction in prediction error ({x['loo_gain_pct']:+.1f}%)")
+        rows.append((f"{label} ({'passed' if ok else 'not passed'})",
+                     f"{x['sem_coef']:+.2f} pts per SD of score (95% CI {x['sem_lo']:.2f} to {x['sem_hi']:.2f}); {loo}"))
     return rows
 
 
@@ -181,94 +174,18 @@ def _place_role(results, place):
     r = results[results["city"] == place]
     if r.empty:
         return ""
-    return ("one of the two places used to build the score" if r.iloc[0]["role"] == "development"
-            else "a held-out test place (the score was locked before it was tested here)")
+    return ("Development area: used to select the score's factors."
+            if r.iloc[0]["role"] == "development"
+            else "Held-out area: the score was fixed before being tested here.")
 
 
 def _common_back_matter(pdf):
-    pdf.h2("How the score works")
-    pdf.para(METHOD, size=9.5)
+    pdf.h2("Method")
+    pdf.para(METHOD, size=9)
     pdf.h2("Data")
-    pdf.bullets([f"{a}: {b}" for a, b in DATA_SOURCES])
-    pdf.h2("Limits and responsible use")
-    pdf.bullets(LIMITS)
-
-
-def tract_report(info, t, place_df, results):
-    place, name = info["place"], info["place_name"]
-    released = bool(info["released"])
-    outcome = info.get("priority_outcome", "obesity")
-    n_scored = int(place_df["modeled"].sum())
-    pdf = Report(f"{t['tract_name']}", f"{name}   |   Tract ID {t['tract_geoid']}")
-
-    tier = t["tier"]
-    if tier == "Withheld":
-        pdf.callout("No suggestion for this tract",
-                    f"The score did not predict obesity or diabetes beyond income in {name}, so we do not "
-                    "rank tracts or suggest interventions here. The numbers below are descriptive only.",
-                    fill=(251, 236, 236))
-    elif tier in ("Act", "Monitor") and t["suggestion"]:
-        iv = INTERVENTIONS_ALL[t["main_driver"]]
-        head = (f"Suggested action: {t['suggestion']}" if tier == "Act"
-                else f"Monitor. If resources allow: {t['suggestion']}")
-        body = iv["what"]
-        if t.get("also_consider"):
-            body += f"\nAlso consider: {t['also_consider']}."
-        pdf.callout(head, body)
-    else:
-        pdf.callout("No action suggested",
-                    "This tract is not a priority tract: its score is at or below the place median, or "
-                    f"{outcome} is not higher than income predicts. Nothing stands out enough to suggest "
-                    "an intervention.", fill=LIGHT)
-
-    if tier in ("Act", "Monitor") and t["suggestion"]:
-        pdf.h2("Why this suggestion")
-        if tier == "Act":
-            pdf.para(f"This is a priority tract (rank {int(t['rank'])} of {n_scored} in {name}): its FoodPrint "
-                     f"Score is above the place median and {outcome} is higher than income and poverty "
-                     f"predict. The suggestion follows the input(s) where this tract is among the worst 30% "
-                     f"of {name}:", size=9.5)
-        else:
-            pdf.para(f"This tract's score is in the worst fifth of {name}, but {outcome} is not higher than "
-                     "income predicts, so it is not a priority tract. The input(s) that stand out:", size=9.5)
-        pdf.bullets(_split_reasons(t["why"]))
-    pdf.h2("What drives this tract's score")
-    pdf.image_bytes(_driver_chart(t), w=pdf.epw)
-
-    pdf.h2("The numbers")
-    rows = [("FoodPrint Score", f"{t['foodprint_score']:.0f} / 100 (100 = worst in {name})")]
-    if pd.notna(t.get("rank")):
-        rows.append(("Priority rank", f"{int(t['rank'])} of {n_scored}" + ("" if released else " (not released)")))
-    rows += [
-        ("Obesity", f"{t['obesity_pct']:.1f}%  ({t['excess_obesity']:+.1f} pts vs what income predicts)"),
-        ("Diabetes", f"{t['diabetes_pct']:.1f}%  ({t['excess_diabetes']:+.1f} pts vs what income predicts)"),
-        ("Median household income", f"${t['median_hh_income']:,.0f}" if pd.notna(t['median_hh_income']) else "no data"),
-        ("Poverty rate", f"{t['poverty_rate_pct']:.1f}%"),
-        ("Population (2020)", f"{t['POP2020']:,.0f}"),
-    ]
-    med = place_df[place_df["modeled"]][FEATURES].median()
-    for f in FEATURES:
-        rows.append((FEATURE_LABELS[f].split(" (")[0], f"{fmt_value(f, t[f])}   (place median {fmt_value(f, med[f])})"))
-    pdf.kv_table(rows, w1=62)
-
-    pdf.h2(f"Is the score trustworthy in {name}?")
-    pdf.para(f"{name} is {_place_role(results, place)}. Test results, after controlling for income and poverty:",
-             size=9.5)
-    pdf.kv_table(_evidence_rows(results, place), w1=42)
-    if released:
-        pdf.para(f"The priority list here ranks on {outcome}, the outcome the score passed for"
-                 + (" (it passed for both)." if info.get("pass_obesity") and info.get("pass_diabetes") else "."),
-                 size=9, color=GREY)
-    _common_back_matter(pdf)
-    return bytes(pdf.output())
-
-
-def _split_reasons(why):
-    # each driver's reason ends with "(place median ...)." - split there
-    why = str(why).strip()
-    if not why.endswith(")."):
-        return [why]
-    return [c.strip() + ")." for c in why[:-2].split(").") if c.strip()]
+    pdf.bullets([f"{a}: {b}" for a, b in DATA_SOURCES], size=9)
+    pdf.h2("Limitations")
+    pdf.bullets(LIMITS, size=9)
 
 
 def short_name(name, rural):
@@ -277,49 +194,118 @@ def short_name(name, rural):
     return n if rural else n.split(",")[0]
 
 
+def tract_report(info, t, place_df, results):
+    place, name = info["place"], info["place_name"]
+    released = bool(info["released"])
+    outcome = info.get("priority_outcome", "obesity")
+    n_scored = int(place_df["modeled"].sum())
+    pdf = Report(f"{t['tract_name']}", f"{name}  |  GEOID {t['tract_geoid']}")
+    tier = t["tier"]
+    excess = t[f"excess_{outcome}"]
+
+    if tier == "Withheld":
+        pdf.callout("No recommendation",
+                    f"The score did not pass validation in {name}, so tracts here are not ranked. "
+                    "Figures below are descriptive.", fill=(251, 236, 236))
+    elif tier in ("Act", "Monitor") and t["suggestion"]:
+        iv = INTERVENTIONS_ALL[t["main_driver"]]
+        head = f"Recommendation: {t['suggestion']}" if tier == "Act" else f"Watch list. Possible step: {t['suggestion']}"
+        body = iv["what"] + (f" Secondary: {t['also_consider']}." if t.get("also_consider") else "")
+        pdf.callout(head, body)
+    else:
+        pdf.callout("No recommendation",
+                    f"Not a priority tract. Either the score is at or below the {name} median or {outcome} "
+                    "is no higher than income and poverty predict.", fill=LIGHT)
+
+    if tier in ("Act", "Monitor") and t["suggestion"]:
+        pdf.h2("Basis")
+        if tier == "Act":
+            lead = (f"Rank {int(t['rank'])} of {n_scored} in {name}. Score {t['foodprint_score']:.0f}/100; "
+                    f"{outcome} prevalence {t[f'{outcome}_pct']:.1f}%, {excess:+.1f} pts relative to what "
+                    f"income and poverty predict.")
+        else:
+            lead = (f"Score {t['foodprint_score']:.0f}/100, in the worst fifth of {name}, but {outcome} is "
+                    f"{excess:+.1f} pts relative to the income prediction, so it is not a priority tract.")
+        reasons = split_reasons(t["why"])
+        if reasons:
+            lead += " Factors in the worst 30% of the area:"
+        else:
+            lead += " " + INTERVENTIONS_ALL["general"]["why"]
+        pdf.para(lead, size=9.5)
+        if reasons:
+            pdf.bullets(reasons)
+    pdf.h2("Score components")
+    pdf.image_bytes(_driver_chart(t), w=pdf.epw)
+
+    pdf.h2("Tract profile")
+    rows = [("FoodPrint Score", f"{t['foodprint_score']:.0f} / 100")]
+    if pd.notna(t.get("rank")) and released:
+        rows.append(("Priority rank", f"{int(t['rank'])} of {n_scored}"))
+    rows += [
+        ("Obesity", f"{t['obesity_pct']:.1f}%  ({t['excess_obesity']:+.1f} pts vs. income-predicted)"),
+        ("Diabetes", f"{t['diabetes_pct']:.1f}%  ({t['excess_diabetes']:+.1f} pts vs. income-predicted)"),
+        ("Median household income", f"${t['median_hh_income']:,.0f}" if pd.notna(t['median_hh_income']) else "n/a"),
+        ("Poverty rate", f"{t['poverty_rate_pct']:.1f}%"),
+        ("Population (2020)", f"{t['POP2020']:,.0f}"),
+    ]
+    med = place_df[place_df["modeled"]][FEATURES].median()
+    for f in FEATURES:
+        rows.append((INTERVENTIONS_ALL[f]["short"], f"{fmt_value(f, t[f])}  (median tract {fmt_value(f, med[f])})"))
+    pdf.kv_table(rows, w1=62)
+
+    pdf.h2(f"Validation, {name}")
+    pdf.para(_place_role(results, place), size=9.5)
+    pdf.kv_table(_evidence_rows(results, place), w1=48)
+    if released:
+        both = info.get("pass_obesity") and info.get("pass_diabetes")
+        pdf.para(f"Priority ranking uses {outcome}" + ("." if both else f", the only outcome that passed here."),
+                 size=9, color=GREY)
+    _common_back_matter(pdf)
+    return bytes(pdf.output())
+
+
 def place_report(info, place_df, results):
     place, name = info["place"], info["place_name"]
     released = bool(info["released"])
     outcome = info.get("priority_outcome", "obesity")
     rural = place == "rural_va"
-    pdf = Report(f"{name}: what communities need",
-                 f"{int(info['tracts_modeled'])} tracts scored   |   priority list ranked on {outcome}")
+    pdf = Report(f"{name}: priority tracts and recommended interventions",
+                 f"{int(info['tracts_modeled'])} tracts scored  |  ranked on {outcome}")
     if not released:
-        pdf.callout("Priority list not released",
-                    f"The score did not pass the validation test in {name} for obesity or diabetes, so we do "
-                    "not rank its tracts or suggest interventions. See the test results below.",
+        pdf.callout("Not released",
+                    f"The score did not pass validation in {name} for obesity or diabetes, so tracts are "
+                    "not ranked and no interventions are recommended. Results are below.",
                     fill=(251, 236, 236))
     else:
         act = place_df[place_df["tier"] == "Act"]
-        pdf.callout(f"{len(act)} priority tracts, {int(act['POP2020'].sum()):,} residents",
-                    f"Priority = FoodPrint Score above the place median AND {outcome} higher than income and "
-                    "poverty predict. Each priority tract gets one main suggestion from the input where it is "
-                    "worst; they are grouped below.")
-        pdf.h2("Alerts: what is needed, and where")
+        pdf.para(f"{len(act)} of {int(info['tracts_modeled'])} tracts are priority tracts, with "
+                 f"{int(act['POP2020'].sum()):,} residents. A priority tract scores above the area median "
+                 f"and has higher {outcome} prevalence than income and poverty predict. Each is matched to "
+                 "one intervention based on its worst factor.", size=10)
+        pdf.h2("Recommended interventions")
         for _, a in alerts(place_df).iterrows():
             iv = INTERVENTIONS_ALL[a["main_driver"]]
-            pdf.set_font("Helvetica", "B", 10.5); pdf.set_text_color(*INK)
             n_t = f"{a['tracts']} tract" + ("" if a["tracts"] == 1 else "s")
-            pdf.multi_cell(0, 5.5, clean(f"{a['suggestion']}  -  {n_t}, {int(a['population']):,} residents"),
+            pdf.set_font("Helvetica", "B", 10.5); pdf.set_text_color(*INK)
+            pdf.multi_cell(0, 5.5, clean(f"{a['suggestion']} ({n_t}, {int(a['population']):,} residents)"),
                            new_x="LMARGIN", new_y="NEXT")
-            pdf.para(f"Why: {iv['why']}", size=9, color=GREY)
-            pdf.para(f"What: {iv['what']}", size=9)
+            pdf.para(f"{iv['why']} {iv['what']}", size=9)
             lst = [short_name(n, rural) for n in a["tract_list"]]
-            top = "; ".join(lst[:6]) + (f" and {len(lst) - 6} more" if len(lst) > 6 else "")
-            pdf.para(f"Highest-ranked: {top}", size=8.5, color=GREY)
+            more = f"; {len(lst) - 10} more in the table" if len(lst) > 10 else ""
+            pdf.para("; ".join(lst[:10]) + more, size=8.5, color=GREY)
             pdf.ln(1.5)
         pdf.add_page()
-        pdf.h2("Every priority tract")
+        pdf.h2("Priority tracts by rank")
         rows = []
         for _, r in act.sort_values("rank").iterrows():
             rows.append([f"{int(r['rank'])}", short_name(r["tract_name"], rural),
                          f"{r['foodprint_score']:.0f}", f"{r[f'excess_{outcome}']:+.1f}",
                          f"{int(r['POP2020']):,}", r["suggestion"]])
-        pdf.grid(["Rank", "Tract", "Score", f"Excess {outcome[:4]}.", "People", "Main suggestion"], rows,
+        pdf.grid(["Rank", "Tract", "Score", f"Excess {outcome[:4]}.", "Pop.", "Intervention"], rows,
                  [11, 42, 13, 20, 16, pdf.epw - 102])
-    pdf.h2(f"Is the score trustworthy in {name}?")
-    pdf.para(f"{name} is {_place_role(results, place)}.", size=9.5)
-    pdf.kv_table(_evidence_rows(results, place), w1=42)
+    pdf.h2("Validation")
+    pdf.para(_place_role(results, place), size=9.5)
+    pdf.kv_table(_evidence_rows(results, place), w1=48)
     _common_back_matter(pdf)
     return bytes(pdf.output())
 
@@ -328,8 +314,9 @@ if __name__ == "__main__":
     ROOT = Path(__file__).resolve().parent.parent
     key = sys.argv[1] if len(sys.argv) > 1 else "richmond"
     summary = pd.read_csv(ROOT / "outputs/dashboard/places_summary.csv")
-    tracts = pd.read_csv(ROOT / "outputs/dashboard/all_tracts.csv", dtype={"tract_geoid": str}, keep_default_na=True)
-    tracts[["suggestion", "also_consider", "why", "main_driver"]] = tracts[["suggestion", "also_consider", "why", "main_driver"]].fillna("")
+    tracts = pd.read_csv(ROOT / "outputs/dashboard/all_tracts.csv", dtype={"tract_geoid": str})
+    cols = ["tract_name", "tier", "suggestion", "main_driver", "also_consider", "why"]
+    tracts[cols] = tracts[cols].fillna("")
     results = pd.read_csv(ROOT / "outputs/all_cities/all_cities_results.csv")
     info = summary[summary["place"] == key].iloc[0].to_dict()
     df = tracts[tracts["place"] == key]

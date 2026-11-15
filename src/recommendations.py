@@ -32,39 +32,40 @@ MIN_LEVEL = {
 
 INTERVENTIONS = {
     "limited_share": {
-        "name": "Healthy small-store program",
-        "what": "Work with the convenience, dollar and small stores already in the area to stock, "
-                "price and promote fresh produce and healthy staples.",
-        "why": "Most stores nearby are convenience, dollar or small stores, so the food people can "
-               "buy close to home is mostly packaged and processed.",
+        "name": "Healthy corner store program",
+        "what": "Partner with the corner and dollar stores already here to carry produce and staples "
+                "(cooler space, a stocking subsidy, shelf placement).",
+        "why": "Most SNAP stores nearby are corner, dollar or small stores.",
+        "short": "Corner/dollar/small store share",
     },
     "dist_full_service_km": {
-        "name": "Grocery transportation link",
-        "what": "A grocery shuttle, a transit route change or ride vouchers to the nearest supermarket. "
-                "Longer term, a candidate site for grocery financing.",
-        "why": "The nearest full-service supermarket is far away compared with the rest of this place.",
+        "name": "Grocery shuttle or transit fix",
+        "what": "Run a shuttle or adjust a bus route to the nearest supermarket, or offer ride vouchers. "
+                "If the gap persists, flag the area for grocery financing.",
+        "why": "The nearest supermarket is farther away than for most tracts in the area.",
+        "short": "Distance to nearest supermarket",
     },
     "access_distance": {
-        "name": "Mobile market or pop-up produce stand",
-        "what": "Bring fresh food to the neighborhood on a schedule: a mobile market, farm stand or "
-                "pop-up at a clinic, school or church that accepts SNAP.",
-        "why": "A large share of residents live far from any store that accepts SNAP.",
+        "name": "Mobile market",
+        "what": "Schedule a mobile market or produce stand that takes SNAP, at a clinic, school or church.",
+        "why": "Many residents live far from any store that takes SNAP.",
+        "short": "Residents far from a SNAP store",
     },
     "affordability_proxy": {
-        "name": "SNAP online delivery and produce prescriptions",
-        "what": "Help SNAP households sign up for online grocery ordering with delivery, and connect "
-                "patients to produce prescription or fruit-and-vegetable incentive programs.",
-        "why": "Many households here use SNAP and also live far from a store, so cost and distance "
-               "hit the same families.",
+        "name": "SNAP delivery and produce prescriptions",
+        "what": "Enroll SNAP households in online grocery ordering with delivery, and refer patients to "
+                "produce prescription or fruit-and-vegetable incentive programs.",
+        "why": "A large share of households are on SNAP and also far from a store.",
+        "short": "SNAP households far from a store",
     },
 }
 
 GENERAL = {
-    "name": "Community food-access review",
-    "what": "No single input stands out. Start with a resident survey or store walk-through to find "
-            "the local barrier before choosing an intervention.",
-    "why": "The overall score is above the place median and health is worse than income predicts, "
-           "but no one input is in the worst 30% of this place.",
+    "name": "Local assessment",
+    "what": "Talk to residents or walk the stores before picking an intervention.",
+    "why": "The score is above the median and health is worse than income predicts, but no one factor is in "
+           "the worst 30%.",
+    "short": "",
 }
 INTERVENTIONS_ALL = {**INTERVENTIONS, "general": GENERAL}
 
@@ -80,7 +81,7 @@ def fmt_value(feature, v):
     if pd.isna(v):
         return "no data"
     if feature == "limited_share":
-        return f"{v * 100:.0f}% of stores"
+        return f"{v * 100:.0f}%"
     if feature == "dist_full_service_km":
         return f"{v:.1f} km"
     return f"{v:.1f}%"
@@ -108,9 +109,16 @@ def drivers_for(row, pct_row, medians, rural):
 
 
 def reason_text(feature, row, medians):
-    """One plain-language sentence with this tract's number and the place median."""
-    return (f"{INTERVENTIONS[feature]['why']} Here: {fmt_value(feature, row[feature])} "
-            f"(place median {fmt_value(feature, medians[feature])}).")
+    """One line of fact: this tract's value against the median tract."""
+    return (f"{INTERVENTIONS[feature]['short']}: {fmt_value(feature, row[feature])} here, "
+            f"{fmt_value(feature, medians[feature])} in the median tract")
+
+
+SEP = " | "
+
+
+def split_reasons(why):
+    return [r for r in str(why).split(SEP) if r.strip()]
 
 
 def add_recommendations(df, released, rural):
@@ -142,13 +150,13 @@ def add_recommendations(df, released, rural):
             continue
         if not drv:   # priority tract, but no single input stands out
             tiers.append(tier); mains.append(GENERAL["name"]); mains_f.append("general"); seconds.append("")
-            reasons.append(GENERAL["why"])
+            reasons.append("")
             continue
         tiers.append(tier)
         mains.append(INTERVENTIONS[drv[0][0]]["name"])
         mains_f.append(drv[0][0])
         seconds.append("; ".join(INTERVENTIONS[f]["name"] for f, _ in drv[1:]))
-        reasons.append(" ".join(reason_text(f, row, medians) for f, _ in drv))
+        reasons.append(SEP.join(reason_text(f, row, medians) for f, _ in drv))
     df["tier"] = tiers
     df["suggestion"] = mains
     df["main_driver"] = mains_f

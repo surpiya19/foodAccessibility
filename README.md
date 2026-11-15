@@ -68,10 +68,10 @@ pip install -r dashboard/requirements.txt
 streamlit run dashboard/app.py
 ```
 
-Tabs: **What's needed** (alerts: one card per intervention type, with the priority tracts and residents it
+Tabs: **Recommendations** (one card per intervention type, with the priority tracts and residents it
 covers), map, priority list with each tract's suggestion, tract detail, evidence, data & limits. Downloads: the
-priority list as CSV, a **place report** PDF (alerts + every priority tract + method) and a **tract report** PDF
-(the suggestion, why, the numbers, whether the score passed here, data and limits). The app only reads
+priority list as CSV, an **area report** PDF (interventions + ranked priority tracts + method) and a **tract report** PDF
+(recommendation, basis, tract profile, validation, data and limitations). The app only reads
 `outputs/dashboard/` and `outputs/all_cities/all_cities_results.csv`; rerun step 12 after changing the rules.
 
 **Release rule.** A place's list and suggestions are released only if the score passes the strict test
@@ -80,10 +80,10 @@ The list then ranks on the outcome that passed (obesity if both). Baltimore and 
 Richmond and rural Virginia rank on diabetes.
 
 **Suggestion rules** (`src/recommendations.py`). An input is a driver when the tract is in the worst 30% of its
-place on it and above a minimum level. Drivers map to: convenience/dollar store share -> healthy small-store
-program; distance to supermarket -> grocery transportation link; people far from a SNAP store -> mobile market;
-SNAP households far from a store -> SNAP online delivery and produce prescriptions. A priority tract with no
-driver gets "community food-access review". These are options for a CHNA to weigh, not proven effects.
+place on it and above a minimum level. Drivers map to: convenience/dollar store share -> healthy corner store
+program; distance to supermarket -> grocery shuttle or transit fix; people far from a SNAP store -> mobile market;
+SNAP households far from a store -> SNAP delivery and produce prescriptions. A priority tract with no
+driver gets "local assessment". These are options for a CHNA to weigh, not proven effects.
 
 ### Adding rural Virginia
 

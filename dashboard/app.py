@@ -20,7 +20,7 @@ import streamlit as st
 ROOT = Path(__file__).resolve().parent.parent
 DASH = ROOT / "outputs" / "dashboard"
 sys.path.insert(0, str(ROOT / "src"))
-from recommendations import INTERVENTIONS_ALL, alerts  # noqa: E402  (suggestion rules, shared with step 12)
+from recommendations import INTERVENTIONS_ALL, alerts, split_reasons  # noqa: E402  (suggestion rules, shared with step 12)
 import reports  # noqa: E402  (PDF reports)
 
 # colors: one blue ramp for the score, blue-grey-red when a value can be above or below zero
@@ -98,7 +98,7 @@ st.sidebar.markdown(
     f"- SNAP households more than {far} from a store\n\n"
     "**Priority tract** = score above the place median **and** more of the validated outcome "
     "(obesity or diabetes) than income predicts.\n\n"
-    "**Suggestion** = the intervention that matches the input where a tract is in the worst 30% of its place."
+    "Each priority tract is matched to an intervention based on the factor where it is in the worst 30% of its area."
 )
 st.sidebar.caption("A prioritization tool. It shows where to look first; it does not claim that "
                    "food access causes obesity.")
@@ -112,7 +112,7 @@ if released:
 else:
     st.warning("**Priority list not released.** The score did not predict obesity or diabetes beyond "
                "income in this place, so we do not rank its tracts. The map still shows the score. "
-               "See the Evidence tab.", icon="⚠️")
+               "See the Evidence tab.")
 
 c1, c2, c3, c4 = st.columns(4)
 c1.metric("Tracts scored", f"{int(info['tracts_modeled'])}", help=f"of {int(info['tracts'])} tracts; the rest "
@@ -128,47 +128,47 @@ c4.metric("Obesity gap, worst vs best fifth", f"{info['obesity_gap_worst_vs_best
                "minus the fifth with the best score")
 
 tab_alerts, tab_map, tab_list, tab_tract, tab_evidence, tab_about = st.tabs(
-    ["What's needed", "Map", "Priority list", "Tract detail", "Evidence", "Data & limits"])
+    ["Recommendations", "Map", "Priority list", "Tract detail", "Evidence", "Data & limits"])
 
 
 # ---------- tab 0: alerts - what each community needs ----------
 with tab_alerts:
     top_l, top_r = st.columns([3, 1])
-    top_r.download_button("Download place report (PDF)", place_pdf(place),
+    top_r.download_button("Area report (PDF)", place_pdf(place),
                           file_name=f"foodprint_{place}_report.pdf", mime="application/pdf",
                           width="stretch")
     if not released:
-        top_l.subheader("No suggestions for this place")
-        top_l.write("The score did not pass the validation test here, so we do not point to tracts or "
-                    "interventions. The report explains the test result.")
+        top_l.subheader("Not released")
+        top_l.write("The score did not pass validation here, so tracts are not ranked and no interventions "
+                    "are recommended. See the Evidence tab.")
     else:
         al = alerts(df)
         act = df[df["tier"] == "Act"]
-        top_l.subheader(f"{len(al)} needs across {len(act)} priority tracts")
-        top_l.caption(f"Each priority tract gets one main suggestion from the input where it is worst. "
-                      f"Alerts are sorted by how many residents they cover. Ranked on {outcome}.")
+        top_l.subheader("Recommended interventions")
+        top_l.caption(f"{len(act)} priority tracts, {int(act['POP2020'].sum()):,} residents. Each tract is "
+                      f"matched to one intervention based on its worst factor. Ranked on {outcome}.")
         for _, a in al.iterrows():
             iv = INTERVENTIONS_ALL[a["main_driver"]]
             with st.container(border=True):
-                h, n1, n2 = st.columns([3, 1, 1])
-                h.markdown(f"#### {a['suggestion']}")
-                n1.metric("Priority tracts", int(a["tracts"]))
-                n2.metric("Residents", f"{int(a['population']):,}")
-                st.markdown(f"**Why:** {iv['why']}  \n**What:** {iv['what']}")
-                with st.expander("Which tracts, and the numbers behind each"):
+                n_t = f"{int(a['tracts'])} tract" + ("" if a["tracts"] == 1 else "s")
+                st.markdown(f"#### {a['suggestion']}")
+                st.caption(f"{n_t}, {int(a['population']):,} residents")
+                st.write(f"{iv['why']} {iv['what']}")
+                with st.expander("Tracts"):
                     rows = act[act["main_driver"] == a["main_driver"]].sort_values("rank")
                     for _, r in rows.iterrows():
-                        extra = f"  \n_Also consider: {r['also_consider']}_" if r["also_consider"] else ""
-                        st.markdown(f"**#{int(r['rank'])} {r['tract_name']}** "
-                                    f"(score {r['foodprint_score']:.0f}, {outcome} "
-                                    f"{r[f'excess_{outcome}']:+.1f} pts vs income)  \n{r['why']}{extra}")
-                    st.caption("Open a tract in the Tract detail tab to download its own report.")
+                        facts = "; ".join(split_reasons(r["why"]))
+                        extra = f" Secondary: {r['also_consider']}." if r["also_consider"] else ""
+                        st.markdown(f"**{int(r['rank'])}. {r['tract_name']}** (score {r['foodprint_score']:.0f}, "
+                                    f"{outcome} {r[f'excess_{outcome}']:+.1f} pts vs. income-predicted)  \n"
+                                    f"{facts}{'.' if facts else ''}{extra}")
+                    st.caption("Tract reports are in the Tract detail tab.")
         mon = df[(df["tier"] == "Monitor") & (df["suggestion"] != "")]
         if len(mon):
-            with st.expander(f"Monitor: {len(mon)} tracts with a bad score but no excess {outcome}"):
+            with st.expander(f"Watch list ({len(mon)} tracts): worst-fifth score, no excess {outcome}"):
                 st.dataframe(mon.sort_values("foodprint_score", ascending=False)[
                     ["tract_name", "foodprint_score", "suggestion"]].rename(columns={
-                        "tract_name": "Tract", "foodprint_score": "Score", "suggestion": "Would suggest"}),
+                        "tract_name": "Tract", "foodprint_score": "Score", "suggestion": "Possible step"}),
                     hide_index=True, width="stretch")
 
 
@@ -242,8 +242,8 @@ with tab_list:
                      "foodprint_score", "excess_obesity", "obesity_pct",
                      "diabetes_pct", "poverty_rate_pct", "median_hh_income", "POP2020"] + FEATURES]
         table = table.rename(columns={
-            "rank": "Rank", "tract_name": "Tract", "tract_geoid": "Tract ID", "suggestion": "Suggestion",
-            "also_consider": "Also consider", "foodprint_score": "Score",
+            "rank": "Rank", "tract_name": "Tract", "tract_geoid": "GEOID", "suggestion": "Intervention",
+            "also_consider": "Secondary", "foodprint_score": "Score",
             "excess_obesity": "Obesity beyond income (pts)", "obesity_pct": "Obesity %",
             "diabetes_pct": "Diabetes %", "poverty_rate_pct": "Poverty %",
             "median_hh_income": "Median income", "POP2020": "Population",
@@ -263,7 +263,7 @@ with tab_list:
         d1, d2, _ = st.columns([1, 1, 2])
         d1.download_button("Download the list (CSV)", table.to_csv(index=False),
                            file_name=f"foodprint_priority_{place}.csv", mime="text/csv")
-        d2.download_button("Download place report (PDF)", place_pdf(place),
+        d2.download_button("Area report (PDF)", place_pdf(place),
                            file_name=f"foodprint_{place}_report.pdf", mime="application/pdf",
                            key="pdf_list")
 
@@ -288,7 +288,7 @@ with tab_tract:
              f"poverty {t['poverty_rate_pct']:.0f}%", delta_color="off")
 
     if released and t["priority_flag"]:
-        st.success(f"Priority tract, rank {int(t['rank'])} of {len(scored)} in {names[place]}.", icon="📍")
+        st.success(f"Priority tract, rank {int(t['rank'])} of {len(scored)} in {names[place]}.")
     elif released:
         st.info(f"Not a priority tract: the score is below the median, or {outcome} is not above "
                 "what income predicts.")
@@ -296,17 +296,18 @@ with tab_tract:
     sug_col, dl_col = st.columns([3, 1])
     if t["suggestion"]:
         iv = INTERVENTIONS_ALL[t["main_driver"]]
-        label = "Suggested action" if t["tier"] == "Act" else "Monitor. If resources allow"
+        label = "Recommendation" if t["tier"] == "Act" else "Watch list. Possible step"
         with sug_col.container(border=True):
-            st.markdown(f"**{label}: {t['suggestion']}**  \n{iv['what']}")
-            if t["also_consider"]:
-                st.markdown(f"Also consider: {t['also_consider']}")
-            st.markdown("**Why:**  \n" + "  \n".join(f"- {r}" for r in reports._split_reasons(t["why"])))
+            st.markdown(f"**{label}: {t['suggestion']}**")
+            st.write(iv["what"] + (f" Secondary: {t['also_consider']}." if t["also_consider"] else ""))
+            facts = split_reasons(t["why"])
+            if facts:
+                st.markdown("\n".join(f"- {r}" for r in facts))
     elif t["tier"] == "Withheld":
-        sug_col.caption("No suggestion: the score did not pass the validation test in this place.")
+        sug_col.caption("No recommendation. The score did not pass validation here.")
     else:
-        sug_col.caption("No suggestion: nothing about this tract stands out enough.")
-    dl_col.download_button("Download tract report (PDF)", tract_pdf(place, geoid),
+        sug_col.caption("No recommendation for this tract.")
+    dl_col.download_button("Tract report (PDF)", tract_pdf(place, geoid),
                            file_name=f"foodprint_{place}_{geoid}.pdf", mime="application/pdf",
                            width="stretch")
 
