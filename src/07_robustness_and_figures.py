@@ -203,7 +203,7 @@ xs = np.linspace(rx.min(), rx.max(), 50)
 ax.plot(xs, b[0] * xs + b[1], color="#333333", lw=1.2)
 ax.axhline(0, color=GREY, lw=0.6)
 ax.axvline(0, color=GREY, lw=0.6)
-for t in pd.read_csv(OUTPUTS / "foodprint_ranked_tracts.csv", dtype={"tract_geoid": str})["tract_geoid"].head(3):
+for t in pd.read_csv(OUTPUTS / "foodprint_ranked_tracts_old_score.csv", dtype={"tract_geoid": str})["tract_geoid"].head(3):
     m = df["tract_geoid"] == t
     if m.any():
         ax.annotate(t[-6:], (rx[m].iloc[0], ry[m].iloc[0]), xytext=(5, 4),

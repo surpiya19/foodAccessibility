@@ -23,6 +23,11 @@ REGIONS = {
                 "center": (35.1495, -90.0490), "store_radius_km": 50},
     "columbus": {"name": "Columbus (Franklin Co.), OH", "state": "39", "county": "049",
                  "center": (39.9612, -82.9988), "store_radius_km": 45},
+    # all rural tracts in Virginia (FARA Urban = 0), not one county.
+    # county is empty, so fips = "51" and every Virginia tract matches it.
+    # Built by src/01r_rural_virginia.py instead of steps 01, 03, 05b and 06.
+    "rural_va": {"name": "Rural Virginia", "state": "51", "county": "", "abbr": "VA",
+                 "center": (37.5, -78.8), "rural": True},
 }
 
 

@@ -1,6 +1,6 @@
 # FoodPrint Score
 
-A census-tract-level score that shows where food-access investment is most likely to reduce obesity risk, **beyond what income and poverty already explain**. Pilot: Richmond city, Virginia (75 census tracts, 2020 boundaries). Test cities: Baltimore, Maryland (199 tracts) and Washington, DC (206 tracts).
+A census-tract-level score that shows where food-access investment is most likely to reduce obesity risk, **beyond what income and poverty already explain**. Score chosen on Richmond, VA and Baltimore, MD, then tested on places it never saw: Washington DC, Norfolk VA, Memphis (Shelby Co.) TN, Columbus (Franklin Co.) OH, and all rural Virginia tracts. 2020 tract boundaries throughout.
 
 ## Repo layout
 
@@ -19,10 +19,13 @@ src/                 the pipeline, run in order
   09_store_type_test.py      store-type score: select on Richmond + Baltimore, test on a held-out city (DC)
   10_all_cities.py           final score in all six cities, with a spatial error model
   11_story_figures.py        presentation figures (outputs/story/)
+  01r_rural_virginia.py      rural Virginia inputs in one script (replaces 01, 03, 05b, 06 for this region)
+  12_final_scores.py         FINAL score, priority list and map data for every place (feeds the dashboard)
 data/
   raw/               large downloads, not in git (FARA Excel)
   processed/<city>/  small tract-level tables produced by the pipeline
-outputs/<city>/      ranked tract list, validation and robustness results, figures/
+outputs/<city>/      foodprint_ranked_tracts.csv = final list (step 12); *_old_score.csv = first OSM-based score (step 6)
+outputs/dashboard/   map layers (tracts_<place>.geojson), all_tracts.csv, places_summary.csv
 outputs/transfer/    cross-city comparison
 docs/                data inventory, transfer test plan (slides and Word drafts stay local)
 ```
@@ -49,12 +52,45 @@ python src/08_transfer_test.py richmond baltimore
 
 Steps 1, 2 and 6 are enough to reproduce the current results; the processed tables are committed, so step 6 runs on its own. Steps 3-5 add the OpenStreetMap features, and step 6 picks them up automatically when `data/processed/<city>/construct_features.csv` exists.
 
+## Final outputs (what the dashboard reads)
+
+```bash
+python src/10_all_cities.py      # pass / fail of the final score in every place
+python src/12_final_scores.py    # final ranked lists + outputs/dashboard/
+```
+
+### Dashboard
+
+```bash
+pip install -r dashboard/requirements.txt
+streamlit run dashboard/app.py
+```
+
+Map, priority list (CSV download), tract detail and the evidence table for all seven places. The app only reads
+`outputs/dashboard/` and `outputs/all_cities/all_cities_results.csv`.
+
+### Adding rural Virginia
+
+Needs the two raw downloads in `data/raw/` (FARA Excel, Historical SNAP Retailer Locator CSV; links at the top of
+`src/02_extract_fara.py` and `src/05b_snap_store_features.py`) and the Census key in `.env`.
+
+```bash
+python src/02_extract_fara.py rural_va    # every Virginia tract from FARA (a few minutes)
+python src/01r_rural_virginia.py          # rural tracts only (FARA Urban = 0), 10-mile rules
+python src/10_all_cities.py
+python src/12_final_scores.py
+```
+
+Rural tracts use USDA's 10-mile thresholds (`DD_SRAM_lapop10share`, `lasnap10share`) and count the store mix within
+10 miles instead of 1 mile.
+
 ## Method
 
 1. **Construct** features, each oriented so higher = worse food environment: fast-food share of nearby outlets, delivery-access proxy, share of people more than 1/2 mile (driving) from a SNAP store, households without a car and far from a store, and SNAP households far from a store (an affordability proxy until price data is collected).
 2. **Score**: equal-weight average of z-scores, rescaled 0-100.
 3. **Validate**: compare `outcome ~ poverty + log(income)` against the same model plus the score, for obesity and diabetes (robust standard errors, nested F-test, leave-one-out error).
-4. **Rank**: priority tracts have an above-median score *and* more obesity than income predicts.
+4. **Final score (C)**: store mix (limited_share), distance to a full-service store, access_distance, affordability_proxy - chosen on Richmond + Baltimore, see `outputs/store_test/`.
+5. **Rank**: priority tracts have an above-median score *and* more obesity than income predicts.
 
 Results are in [`outputs/richmond/validation_results.md`](outputs/richmond/validation_results.md) and [`outputs/richmond/robustness_results.md`](outputs/richmond/robustness_results.md), with figures in `outputs/richmond/figures/`. Test plans: [`docs/transfer_test_plan.md`](docs/transfer_test_plan.md) (Baltimore) and [`docs/store_type_test_plan.md`](docs/store_type_test_plan.md) (held-out city).
 

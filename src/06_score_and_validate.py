@@ -7,7 +7,7 @@
 #   data/processed/<region>/construct_features.csv   OPTIONAL, from step 5 (fast-food ratio, delivery proxy)
 # Writes:
 #   data/processed/<region>/master_tract_table.csv   all inputs and features, one row per tract
-#   outputs/<region>/foodprint_ranked_tracts.csv     tracts ranked by priority
+#   outputs/<region>/foodprint_ranked_tracts_old_score.csv   tracts ranked by the first (OSM) score; final list: step 12
 #   outputs/<region>/validation_results.md           regression results
 #   outputs/<region>/validation_plot.png
 #
@@ -158,7 +158,7 @@ ranked.insert(0, "rank", range(1, len(ranked) + 1))
 out_cols = ["rank", "tract_geoid", "priority_index", "priority_flag", "foodprint_score",
             "excess_obesity", "obesity_pct", "diabetes_pct", "poverty_rate_pct",
             "median_hh_income", "POP2020"] + features
-ranked[out_cols].round(3).to_csv(OUTPUTS / "foodprint_ranked_tracts.csv", index=False)
+ranked[out_cols].round(3).to_csv(OUTPUTS / "foodprint_ranked_tracts_old_score.csv", index=False)
 
 
 # ---------- Part 7: write the results ----------

@@ -25,7 +25,7 @@ OUT.mkdir(parents=True, exist_ok=True)
 chosen = json.load(open(ROOT / "outputs" / "store_test" / "chosen.json"))
 FEATURES = chosen["features"]
 DEV = chosen["dev_cities"]                       # richmond, baltimore
-ORDER = ["richmond", "baltimore", "dc", "norfolk", "memphis", "columbus"]
+ORDER = ["richmond", "baltimore", "dc", "norfolk", "memphis", "columbus", "rural_va"]
 OUTCOMES = {"obesity_pct": "Obesity", "diabetes_pct": "Diabetes"}
 BLUE, ORANGE, GREY = "#2a6f97", "#d08c2f", "#9a9a9a"
 plt.rcParams.update({"axes.spines.top": False, "axes.spines.right": False,
