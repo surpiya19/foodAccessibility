@@ -17,6 +17,7 @@ from fpdf import FPDF
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from recommendations import FEATURES, INTERVENTIONS_ALL, alerts, fmt_value, split_reasons
+import charts
 
 INK, BLUE, GREY, LIGHT = (11, 11, 11), (42, 120, 214), (110, 110, 105), (240, 239, 236)
 
@@ -104,18 +105,21 @@ class Report(FPDF):
 
     def kv_table(self, rows, w1=70):
         self.set_font("Helvetica", "", 9.5)
+        lh = 5.5
         for i, (k, v) in enumerate(rows):
             fill = LIGHT if i % 2 == 0 else (255, 255, 255)
             self.set_fill_color(*fill)
-            lines = self.multi_cell(self.epw - w1, 5.5, clean(v), dry_run=True, output="LINES")
-            h = 5.5 * max(1, len(lines)) + 0.5
+            nk = len(self.multi_cell(w1 - 2, lh, clean(k), dry_run=True, output="LINES"))
+            nv = len(self.multi_cell(self.epw - w1, lh, clean(v), dry_run=True, output="LINES"))
+            h = lh * max(nk, nv, 1) + 1
             if self.get_y() + h > self.h - 20:
                 self.add_page()
             y = self.get_y()
-            self.set_text_color(*GREY); self.multi_cell(w1, h, clean(k), fill=True, new_x="RIGHT", new_y="TOP")
-            self.set_xy(self.l_margin + w1, y)
-            self.set_text_color(*INK)
-            self.multi_cell(self.epw - w1, 5.5, clean(v), fill=True, align="L", new_x="LMARGIN", new_y="NEXT")
+            self.rect(self.l_margin, y, self.epw, h, style="F")
+            self.set_xy(self.l_margin, y + 0.5); self.set_text_color(*GREY)
+            self.multi_cell(w1 - 2, lh, clean(k), align="L")
+            self.set_xy(self.l_margin + w1, y + 0.5); self.set_text_color(*INK)
+            self.multi_cell(self.epw - w1, lh, clean(v), align="L")
             self.set_y(y + h)
 
     def grid(self, header, rows, widths, size=8.5):
@@ -194,73 +198,60 @@ def short_name(name, rural):
     return n if rural else n.split(",")[0]
 
 
+def _two_up(pdf, png_left, png_right, w_left=0.45):
+    """Two images side by side, top-aligned; cursor moves below the taller one."""
+    y = pdf.get_y(); wl = pdf.epw * w_left - 2; wr = pdf.epw * (1 - w_left) - 2
+    a = pdf.image(io.BytesIO(png_left), x=pdf.l_margin, y=y, w=wl)
+    b = pdf.image(io.BytesIO(png_right), x=pdf.l_margin + wl + 4, y=y, w=wr)
+    pdf.set_y(y + max(a.rendered_height, b.rendered_height) + 2)
+
+
+def _back_matter(pdf):
+    pdf.h2("How the score works")
+    pdf.image_bytes(charts.method_flow(), w=pdf.epw)
+    pdf.para("Each factor is standardized within the area before averaging, so a score of 100 means "
+             "worst in this area, not nationally.", size=8.5, color=GREY)
+    pdf.h2("Data and limitations")
+    pdf.bullets([f"{a}: {b}" for a, b in DATA_SOURCES], size=8.5)
+    pdf.ln(1)
+    pdf.bullets(LIMITS, size=8.5)
+
+
 def tract_report(info, t, place_df, results):
     place, name = info["place"], info["place_name"]
     released = bool(info["released"])
     outcome = info.get("priority_outcome", "obesity")
     n_scored = int(place_df["modeled"].sum())
-    pdf = Report(f"{t['tract_name']}", f"{name}  |  GEOID {t['tract_geoid']}")
+    rank = f"Rank {int(t['rank'])} of {n_scored}  |  " if pd.notna(t.get("rank")) and released else ""
+    pdf = Report(f"{t['tract_name']}",
+                 f"{name}  |  {rank}{t['POP2020']:,.0f} residents  |  median income "
+                 + (f"${t['median_hh_income']:,.0f}" if pd.notna(t['median_hh_income']) else "n/a")
+                 + f"  |  poverty {t['poverty_rate_pct']:.0f}%")
     tier = t["tier"]
-    excess = t[f"excess_{outcome}"]
-
     if tier == "Withheld":
-        pdf.callout("No recommendation",
-                    f"The score did not pass validation in {name}, so tracts here are not ranked. "
-                    "Figures below are descriptive.", fill=(251, 236, 236))
+        pdf.callout("No recommendation", f"The score did not pass validation in {name}. Charts are descriptive only.",
+                    fill=(251, 236, 236))
     elif tier in ("Act", "Monitor") and t["suggestion"]:
         iv = INTERVENTIONS_ALL[t["main_driver"]]
         head = f"Recommendation: {t['suggestion']}" if tier == "Act" else f"Watch list. Possible step: {t['suggestion']}"
-        body = iv["what"] + (f" Secondary: {t['also_consider']}." if t.get("also_consider") else "")
-        pdf.callout(head, body)
+        pdf.callout(head, iv["what"] + (f" Secondary: {t['also_consider']}." if t.get("also_consider") else ""))
     else:
-        pdf.callout("No recommendation",
-                    f"Not a priority tract. Either the score is at or below the {name} median or {outcome} "
-                    "is no higher than income and poverty predict.", fill=LIGHT)
+        pdf.callout("No recommendation", "Not a priority tract.", fill=LIGHT)
 
-    if tier in ("Act", "Monitor") and t["suggestion"]:
-        pdf.h2("Basis")
-        if tier == "Act":
-            lead = (f"Rank {int(t['rank'])} of {n_scored} in {name}. Score {t['foodprint_score']:.0f}/100; "
-                    f"{outcome} prevalence {t[f'{outcome}_pct']:.1f}%, {excess:+.1f} pts relative to what "
-                    f"income and poverty predict.")
-        else:
-            lead = (f"Score {t['foodprint_score']:.0f}/100, in the worst fifth of {name}, but {outcome} is "
-                    f"{excess:+.1f} pts relative to the income prediction, so it is not a priority tract.")
-        reasons = split_reasons(t["why"])
-        if reasons:
-            lead += " Factors in the worst 30% of the area:"
-        else:
-            lead += " " + INTERVENTIONS_ALL["general"]["why"]
-        pdf.para(lead, size=9.5)
-        if reasons:
-            pdf.bullets(reasons)
-    pdf.h2("Score components")
-    pdf.image_bytes(_driver_chart(t), w=pdf.epw)
+    pdf.h2("Where this tract stands")
+    pdf.image_bytes(charts.factor_strips(t, place_df), w=pdf.epw)
+    pdf.para("Factors on which the tract is in the worst 30% of the area drive the recommendation.",
+             size=8.5, color=GREY)
 
-    pdf.h2("Tract profile")
-    rows = [("FoodPrint Score", f"{t['foodprint_score']:.0f} / 100")]
-    if pd.notna(t.get("rank")) and released:
-        rows.append(("Priority rank", f"{int(t['rank'])} of {n_scored}"))
-    rows += [
-        ("Obesity", f"{t['obesity_pct']:.1f}%  ({t['excess_obesity']:+.1f} pts vs. income-predicted)"),
-        ("Diabetes", f"{t['diabetes_pct']:.1f}%  ({t['excess_diabetes']:+.1f} pts vs. income-predicted)"),
-        ("Median household income", f"${t['median_hh_income']:,.0f}" if pd.notna(t['median_hh_income']) else "n/a"),
-        ("Poverty rate", f"{t['poverty_rate_pct']:.1f}%"),
-        ("Population (2020)", f"{t['POP2020']:,.0f}"),
-    ]
-    med = place_df[place_df["modeled"]][FEATURES].median()
-    for f in FEATURES:
-        rows.append((INTERVENTIONS_ALL[f]["short"], f"{fmt_value(f, t[f])}  (median tract {fmt_value(f, med[f])})"))
-    pdf.kv_table(rows, w1=62)
-
-    pdf.h2(f"Validation, {name}")
-    pdf.para(_place_role(results, place), size=9.5)
-    pdf.kv_table(_evidence_rows(results, place), w1=48)
-    if released:
-        both = info.get("pass_obesity") and info.get("pass_diabetes")
-        pdf.para(f"Priority ranking uses {outcome}" + ("." if both else f", the only outcome that passed here."),
-                 size=9, color=GREY)
-    _common_back_matter(pdf)
+    pdf.h2("Health beyond income")
+    _two_up(pdf, charts.health_gap(t, place_df, outcome), charts.forest(results, place))
+    pdf.para(f"Left: each dot is a tract; this tract has {abs(t[f'excess_{outcome}']):.1f} pts "
+             f"{'more' if t[f'excess_{outcome}'] > 0 else 'less'} {outcome} than income and poverty predict. "
+             f"Right: across {name}, the score " + ("adds" if released else "does not reliably add")
+             + f" predictive power beyond income ({_place_role(results, place).split(':')[0].lower()}).",
+             size=8.5, color=GREY)
+    pdf.add_page()
+    _back_matter(pdf)
     return bytes(pdf.output())
 
 
@@ -272,29 +263,24 @@ def place_report(info, place_df, results):
     pdf = Report(f"{name}: priority tracts and recommended interventions",
                  f"{int(info['tracts_modeled'])} tracts scored  |  ranked on {outcome}")
     if not released:
-        pdf.callout("Not released",
-                    f"The score did not pass validation in {name} for obesity or diabetes, so tracts are "
-                    "not ranked and no interventions are recommended. Results are below.",
+        pdf.callout("Not released", f"The score did not pass validation in {name}, so tracts are not ranked.",
                     fill=(251, 236, 236))
+        pdf.image_bytes(charts.forest(results, place), w=pdf.epw * 0.55)
     else:
         act = place_df[place_df["tier"] == "Act"]
-        pdf.para(f"{len(act)} of {int(info['tracts_modeled'])} tracts are priority tracts, with "
-                 f"{int(act['POP2020'].sum()):,} residents. A priority tract scores above the area median "
-                 f"and has higher {outcome} prevalence than income and poverty predict. Each is matched to "
-                 "one intervention based on its worst factor.", size=10)
-        pdf.h2("Recommended interventions")
+        pdf.callout(f"{len(act)} priority tracts  |  {int(act['POP2020'].sum()):,} residents",
+                    f"Score above the area median and {outcome} higher than income and poverty predict.")
+        pdf.h2("Residents covered by each intervention")
+        pdf.image_bytes(charts.intervention_bars(place_df), w=pdf.epw)
+        pdf.h2("Where")
+        pdf.image_bytes(charts.intervention_maps(place_df, place), w=pdf.epw)
+        pdf.add_page()
+        pdf.h2("What each intervention involves")
+        rows = []
         for _, a in alerts(place_df).iterrows():
             iv = INTERVENTIONS_ALL[a["main_driver"]]
-            n_t = f"{a['tracts']} tract" + ("" if a["tracts"] == 1 else "s")
-            pdf.set_font("Helvetica", "B", 10.5); pdf.set_text_color(*INK)
-            pdf.multi_cell(0, 5.5, clean(f"{a['suggestion']} ({n_t}, {int(a['population']):,} residents)"),
-                           new_x="LMARGIN", new_y="NEXT")
-            pdf.para(f"{iv['why']} {iv['what']}", size=9)
-            lst = [short_name(n, rural) for n in a["tract_list"]]
-            more = f"; {len(lst) - 10} more in the table" if len(lst) > 10 else ""
-            pdf.para("; ".join(lst[:10]) + more, size=8.5, color=GREY)
-            pdf.ln(1.5)
-        pdf.add_page()
+            rows.append((a["suggestion"], iv["what"]))
+        pdf.kv_table(rows, w1=55)
         pdf.h2("Priority tracts by rank")
         rows = []
         for _, r in act.sort_values("rank").iterrows():
@@ -303,10 +289,11 @@ def place_report(info, place_df, results):
                          f"{int(r['POP2020']):,}", r["suggestion"]])
         pdf.grid(["Rank", "Tract", "Score", f"Excess {outcome[:4]}.", "Pop.", "Intervention"], rows,
                  [11, 42, 13, 20, 16, pdf.epw - 102])
-    pdf.h2("Validation")
-    pdf.para(_place_role(results, place), size=9.5)
-    pdf.kv_table(_evidence_rows(results, place), w1=48)
-    _common_back_matter(pdf)
+        pdf.h2("Validation")
+        pdf.image_bytes(charts.forest(results, place), w=pdf.epw * 0.55)
+    pdf.para(_place_role(results, place), size=8.5, color=GREY)
+    pdf.add_page()
+    _back_matter(pdf)
     return bytes(pdf.output())
 
 
