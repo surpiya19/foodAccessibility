@@ -1,8 +1,8 @@
-place,place_name,tracts,tracts_modeled,priority_tracts,priority_population,obesity_gap_worst_vs_best_fifth,pass_obesity,pass_diabetes,spatial_pass_obesity,spatial_pass_diabetes,released
-richmond,"Richmond, VA",75,73,27,81982,4.46,True,True,False,True,True
-baltimore,"Baltimore, MD",199,193,66,197271,2.74,True,True,False,False,True
-dc,"Washington, DC",206,198,72,247290,4.24,True,True,True,True,True
-norfolk,"Norfolk, VA",81,74,18,53218,-0.16,False,False,False,False,False
-memphis,"Memphis (Shelby Co.), TN",249,242,76,322248,4.24,True,True,True,True,True
-columbus,"Columbus (Franklin Co.), OH",328,325,98,431371,3.52,True,True,True,True,True
-rural_va,Rural Virginia,631,614,161,560604,1.22,True,True,False,True,True
+place,place_name,tracts,tracts_modeled,priority_tracts,priority_population,obesity_gap_worst_vs_best_fifth,priority_outcome,act_tracts,monitor_tracts,pass_obesity,pass_diabetes,ols_pass_obesity,ols_pass_diabetes,released
+richmond,"Richmond, VA",75,73,29,87239,4.46,diabetes,29,2,False,True,True,True,True
+baltimore,"Baltimore, MD",199,193,66,197271,2.74,obesity,0,0,False,False,True,True,False
+dc,"Washington, DC",206,198,72,247290,4.24,obesity,72,5,True,True,True,True,True
+norfolk,"Norfolk, VA",81,74,18,53218,-0.16,obesity,0,0,False,False,False,False,False
+memphis,"Memphis (Shelby Co.), TN",249,242,76,322248,4.24,obesity,76,9,True,True,True,True,True
+columbus,"Columbus (Franklin Co.), OH",328,325,98,431371,3.52,obesity,98,21,True,True,True,True,True
+rural_va,Rural Virginia,631,614,159,514209,1.22,diabetes,159,53,False,True,True,True,True

@@ -17,3 +17,6 @@ docs/*.docx
 # osmnx download cache
 cache/
 *.bak
+
+# sample PDFs from src/reports.py
+outputs/reports/

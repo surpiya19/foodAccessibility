@@ -21,6 +21,7 @@ import pandas as pd
 import geopandas as gpd
 
 from regions import ROOT, REGIONS
+from recommendations import add_recommendations
 
 FEATURES = json.load(open(ROOT / "outputs" / "store_test" / "chosen.json"))["features"]
 DASH = ROOT / "outputs" / "dashboard"
@@ -39,19 +40,40 @@ def income_residual(d, outcome):
     return d[outcome] - X @ beta
 
 
-# did the score pass in each place? (step 10). A place is "released" if it passed for at least one outcome.
+# did the score pass in each place? (step 10)
+# STRICT pass, the same test the Evidence tab shows: spatial-model effect above zero (95% CI lower
+# bound > 0) AND lower leave-one-out error than income + poverty alone. Computed here from the raw
+# columns so it does not matter which version of all_cities_results.csv is on disk.
+# A place is "released" if the score passes for at least one outcome. The priority list then uses
+# the outcome that passed (obesity if both did).
 passed = {}
 if RESULTS.exists():
     res = pd.read_csv(RESULTS)
+    res["strict_pass"] = (res["sem_lo"] > 0) & (res["loo_gain_pct"] > 0)
     for city, g in res.groupby("city"):
+        ob = g[g["outcome"] == "obesity_pct"]
+        di = g[g["outcome"] == "diabetes_pct"]
         passed[city] = {
-            "pass_obesity": bool(g.loc[g["outcome"] == "obesity_pct", "pass"].any()),
-            "pass_diabetes": bool(g.loc[g["outcome"] == "diabetes_pct", "pass"].any()),
-            "spatial_pass_obesity": bool((g.loc[g["outcome"] == "obesity_pct", "sem_lo"] > 0).any()),
-            "spatial_pass_diabetes": bool((g.loc[g["outcome"] == "diabetes_pct", "sem_lo"] > 0).any()),
+            "pass_obesity": bool(ob["strict_pass"].any()),
+            "pass_diabetes": bool(di["strict_pass"].any()),
+            "ols_pass_obesity": bool((ob["lo"] > 0).any()),
+            "ols_pass_diabetes": bool((di["lo"] > 0).any()),
         }
 else:
     print("NOTE: run src/10_all_cities.py first to fill in pass/fail.")
+
+
+def tract_names(key):
+    """'Census Tract 102.01, Richmond city' from the tract shapes + FARA county names."""
+    g = gpd.read_file(ROOT / "data" / "processed" / key / "tracts.geojson", ignore_geometry=True)
+    names = dict(zip(g["GEOID"].astype(str), g["NAME"].astype(str)))
+    county = {}
+    fara = ROOT / "data" / "processed" / key / "fara2025.csv"
+    if fara.exists():
+        f = pd.read_csv(fara, dtype={"CensusTract20": str}, usecols=["CensusTract20", "County24"])
+        county = dict(zip(f["CensusTract20"], f["County24"]))
+    return {gid: f"Census Tract {n}" + (f", {county[gid]}" if gid in county else "") for gid, n in names.items()}
+
 
 all_rows, summary = [], []
 for key, region in REGIONS.items():
@@ -72,8 +94,12 @@ for key, region in REGIONS.items():
     ok = ok[ok["PCTGQTRS"] < 50].copy()
     ok["excess_obesity"] = income_residual(ok, "obesity_pct")
     ok["excess_diabetes"] = income_residual(ok, "diabetes_pct")
-    ok["priority_index"] = zscore(ok["foodprint_score"]) + zscore(ok["excess_obesity"])
-    ok["priority_flag"] = (ok["foodprint_score"] > ok["foodprint_score"].median()) & (ok["excess_obesity"] > 0)
+    p = passed.get(key, {})
+    released = bool(p.get("pass_obesity") or p.get("pass_diabetes"))
+    # rank on the outcome the score was validated for here (obesity if both, or if neither)
+    target = "diabetes" if (p.get("pass_diabetes") and not p.get("pass_obesity")) else "obesity"
+    ok["priority_index"] = zscore(ok["foodprint_score"]) + zscore(ok[f"excess_{target}"])
+    ok["priority_flag"] = (ok["foodprint_score"] > ok["foodprint_score"].median()) & (ok[f"excess_{target}"] > 0)
     ok["score_quintile"] = pd.qcut(ok["foodprint_score"].rank(method="first"), 5, labels=[1, 2, 3, 4, 5]).astype(int)
 
     # ---------- 3. ranked list ----------
@@ -92,7 +118,11 @@ for key, region in REGIONS.items():
         ranked[["tract_geoid", "rank", "priority_flag", "priority_index", "score_quintile",
                 "excess_obesity", "excess_diabetes"]], on="tract_geoid", how="left")
     t["modeled"] = t["rank"].notna()
-    t["priority_flag"] = t["priority_flag"].fillna(False).astype(bool)
+    t["priority_flag"] = t["priority_flag"].astype("boolean").fillna(False).astype(bool)
+    names_map = tract_names(key)
+    t.insert(1, "tract_name", t["tract_geoid"].map(names_map).fillna("Census Tract " + t["tract_geoid"]))
+    t["priority_outcome"] = target
+    t = add_recommendations(t, released, bool(region.get("rural")))
     t.insert(0, "place", key)
     t.insert(1, "place_name", region["name"])
     all_rows.append(t)
@@ -106,14 +136,15 @@ for key, region in REGIONS.items():
     g.round(3).to_file(DASH / f"tracts_{key}.geojson", driver="GeoJSON")
 
     # ---------- 6. summary row ----------
-    p = passed.get(key, {})
-    released = p.get("pass_obesity", False) or p.get("pass_diabetes", False)
     top_q = ok.loc[ok["score_quintile"] == 5, "excess_obesity"].mean()
     low_q = ok.loc[ok["score_quintile"] == 1, "excess_obesity"].mean()
     summary.append({"place": key, "place_name": region["name"], "tracts": len(m), "tracts_modeled": len(ok),
                     "priority_tracts": int(ok["priority_flag"].sum()),
                     "priority_population": int(ok.loc[ok["priority_flag"], "POP2020"].sum()),
                     "obesity_gap_worst_vs_best_fifth": round(top_q - low_q, 2),
+                    "priority_outcome": target,
+                    "act_tracts": int((t["tier"] == "Act").sum()),
+                    "monitor_tracts": int((t["tier"] == "Monitor").sum()),
                     **p, "released": released if p else None})
     print(f"{region['name']:32s} tracts {len(ok):4d}  priority {int(ok['priority_flag'].sum()):4d}  "
           f"released {released if p else '?'}")

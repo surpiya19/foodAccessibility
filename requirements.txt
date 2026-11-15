@@ -11,3 +11,4 @@ libpysal
 spreg
 streamlit>=1.50
 plotly>=6
+fpdf2>=2.7

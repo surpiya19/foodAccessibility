@@ -20,7 +20,9 @@ src/                 the pipeline, run in order
   10_all_cities.py           final score in all six cities, with a spatial error model
   11_story_figures.py        presentation figures (outputs/story/)
   01r_rural_virginia.py      rural Virginia inputs in one script (replaces 01, 03, 05b, 06 for this region)
-  12_final_scores.py         FINAL score, priority list and map data for every place (feeds the dashboard)
+  12_final_scores.py         FINAL score, priority list, suggestions and map data for every place (feeds the dashboard)
+  recommendations.py         suggestion rules: which intervention fits each tract, and why (used by 12, app, reports)
+  reports.py                 PDF reports (one tract, or one place); `python src/reports.py richmond` for a sample
 data/
   raw/               large downloads, not in git (FARA Excel)
   processed/<city>/  small tract-level tables produced by the pipeline
@@ -66,8 +68,22 @@ pip install -r dashboard/requirements.txt
 streamlit run dashboard/app.py
 ```
 
-Map, priority list (CSV download), tract detail and the evidence table for all seven places. The app only reads
-`outputs/dashboard/` and `outputs/all_cities/all_cities_results.csv`.
+Tabs: **What's needed** (alerts: one card per intervention type, with the priority tracts and residents it
+covers), map, priority list with each tract's suggestion, tract detail, evidence, data & limits. Downloads: the
+priority list as CSV, a **place report** PDF (alerts + every priority tract + method) and a **tract report** PDF
+(the suggestion, why, the numbers, whether the score passed here, data and limits). The app only reads
+`outputs/dashboard/` and `outputs/all_cities/all_cities_results.csv`; rerun step 12 after changing the rules.
+
+**Release rule.** A place's list and suggestions are released only if the score passes the strict test
+(spatial-model effect > 0 at 95% AND lower leave-one-out error than income + poverty) for obesity or diabetes.
+The list then ranks on the outcome that passed (obesity if both). Baltimore and Norfolk are withheld;
+Richmond and rural Virginia rank on diabetes.
+
+**Suggestion rules** (`src/recommendations.py`). An input is a driver when the tract is in the worst 30% of its
+place on it and above a minimum level. Drivers map to: convenience/dollar store share -> healthy small-store
+program; distance to supermarket -> grocery transportation link; people far from a SNAP store -> mobile market;
+SNAP households far from a store -> SNAP online delivery and produce prescriptions. A priority tract with no
+driver gets "community food-access review". These are options for a CHNA to weigh, not proven effects.
 
 ### Adding rural Virginia
 
