@@ -71,6 +71,50 @@ def tract_pdf(place, geoid):
     return reports.tract_report(info, d[d["tract_geoid"] == geoid].iloc[0], d, results)
 
 
+FACTOR_COLS = {  # column header, scale factor, number format
+    "limited_share": ("Corner/dollar stores", 100, "{:.0f}%"),
+    "dist_full_service_km": ("Km to supermarket", 1, "{:.1f}"),
+    "access_distance": ("Residents far from SNAP store", 1, "{:.0f}%"),
+    "affordability_proxy": ("SNAP homes far from store", 1, "{:.1f}%"),
+}
+
+
+def tract_factor_table(rows, scored_all, outcome, rural):
+    """One row per tract, one column per factor; driver cells shaded. Median tract on top."""
+    gap = f"{outcome.capitalize()} gap (pts)"
+    med = {"Rank": "", "Tract": "Median tract", "Score": scored_all["foodprint_score"].median(), gap: 0.0}
+    out, drivers = [med], [set()]
+    for _, r in rows.iterrows():
+        rec = {"Rank": str(int(r["rank"])), "Tract": reports.short_name(r["tract_name"], rural),
+               "Score": r["foodprint_score"], gap: r[f"excess_{outcome}"]}
+        found = {f for f in FEATURES if any(x.startswith(INTERVENTIONS_ALL[f]["short"]) for x in split_reasons(r["why"]))}
+        out.append(rec); drivers.append(found)
+    for f, (label, mult, _) in FACTOR_COLS.items():
+        out[0][label] = scored_all[f].median() * mult
+        for rec, (_, r) in zip(out[1:], rows.iterrows()):
+            rec[label] = r[f] * mult
+    for rec, (_, r) in zip(out[1:], rows.iterrows()):
+        rec["Also needs"] = r["also_consider"].replace("; ", ", ")
+    out[0]["Also needs"] = ""
+    table = pd.DataFrame(out)
+
+    def shade(row):
+        d = drivers[row.name]
+        styles = []
+        for c in row.index:
+            f = next((k for k, v in FACTOR_COLS.items() if v[0] == c), None)
+            if row.name == 0:
+                styles.append("color: #52514e; font-style: italic")
+            elif f and f in d:
+                styles.append("background-color: #cde2fb; font-weight: 600")
+            else:
+                styles.append("")
+        return styles
+
+    fmt = {"Score": "{:.0f}", gap: "{:+.1f}"} | {v[0]: v[2] for v in FACTOR_COLS.values()}
+    return table.style.apply(shade, axis=1).format(fmt, na_rep="n/a")
+
+
 def map_center(shapes):
     pts = [pt for f in shapes["features"] for ring in
            (f["geometry"]["coordinates"] if f["geometry"]["type"] == "Polygon"
@@ -159,6 +203,7 @@ with tab_alerts:
     else:
         al = alerts(df)
         act = df[df["tier"] == "Act"]
+        scored_all = df[df["modeled"]]
         top_l.subheader("Recommended interventions")
         top_l.caption(f"{len(act)} priority tracts, {int(act['POP2020'].sum()):,} residents. Each tract is "
                       f"matched to one intervention based on its worst factor. Ranked on {outcome}.")
@@ -194,15 +239,12 @@ with tab_alerts:
             iv = INTERVENTIONS_ALL[a["main_driver"]]
             with st.container(border=True):
                 st.markdown(f"**{a['suggestion']}**  \n{iv['what']}")
-                with st.expander("Tracts"):
+                with st.expander(f"Tracts ({int(a['tracts'])})"):
                     rows = act[act["main_driver"] == a["main_driver"]].sort_values("rank")
-                    for _, r in rows.iterrows():
-                        facts = "; ".join(split_reasons(r["why"]))
-                        extra = f" Secondary: {r['also_consider']}." if r["also_consider"] else ""
-                        st.markdown(f"**{int(r['rank'])}. {r['tract_name']}** (score {r['foodprint_score']:.0f}, "
-                                    f"{outcome} {r[f'excess_{outcome}']:+.1f} pts vs. income-predicted)  \n"
-                                    f"{facts}{'.' if facts else ''}{extra}")
-                    st.caption("Tract reports are in the Tract detail tab.")
+                    st.dataframe(tract_factor_table(rows, scored_all, outcome, is_rural),
+                                 hide_index=True, width="stretch")
+                    st.caption("Shaded = factor in the worst 30% of the area (these drive the recommendation). "
+                               "First row is the median tract for comparison. Tract reports are in the Tract detail tab.")
         mon = df[(df["tier"] == "Monitor") & (df["suggestion"] != "")]
         if len(mon):
             with st.expander(f"Watch list ({len(mon)} tracts): worst-fifth score, no excess {outcome}"):

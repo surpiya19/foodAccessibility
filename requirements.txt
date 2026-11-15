@@ -12,3 +12,4 @@ spreg
 streamlit>=1.50
 plotly>=6
 fpdf2>=2.7
+jinja2>=3.1.2
