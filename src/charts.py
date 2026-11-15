@@ -28,8 +28,9 @@ UNITS = {"limited_share": "% of nearby SNAP stores", "dist_full_service_km": "km
          "access_distance": "% of residents", "affordability_proxy": "% of households"}
 
 
-def _png(fig):
-    buf = io.BytesIO(); fig.savefig(buf, format="png", dpi=200, bbox_inches="tight"); plt.close(fig)
+def _png(fig, transparent=False):
+    buf = io.BytesIO()
+    fig.savefig(buf, format="png", dpi=200, bbox_inches="tight", transparent=transparent); plt.close(fig)
     return buf.getvalue()
 
 
@@ -116,7 +117,7 @@ def forest(results, place):
     return _png(fig)
 
 
-def method_flow():
+def method_flow(transparent=False):
     """Four factors -> score -> priority test -> intervention."""
     fig, ax = plt.subplots(figsize=(7.2, 2.0)); ax.set_xlim(0, 100); ax.set_ylim(0, 30); ax.axis("off")
 
@@ -139,7 +140,7 @@ def method_flow():
     box(54.5, 7, 21, 16, "Priority tract if\nscore > median\nAND health worse\nthan income predicts", fill="#f0efec")
     arrow(76.5, 15, 80, 15)
     box(80.5, 7, 19, 16, "Intervention\nmatched to the\nworst factor", fill=BLUE, bold=True, color="white")
-    return _png(fig)
+    return _png(fig, transparent)
 
 
 def intervention_bars(place_df):

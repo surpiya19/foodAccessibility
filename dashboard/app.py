@@ -22,7 +22,7 @@ import streamlit as st
 ROOT = Path(__file__).resolve().parent.parent
 DASH = ROOT / "outputs" / "dashboard"
 sys.path.insert(0, str(ROOT / "src"))
-from recommendations import INTERVENTIONS_ALL, alerts, split_reasons  # noqa: E402  (suggestion rules, shared with step 12)
+from recommendations import INTERVENTIONS_ALL, alerts, fmt_value, split_reasons  # noqa: E402  (suggestion rules, shared with step 12)
 import reports  # noqa: E402  (PDF reports)
 import charts  # noqa: E402  (static charts shared with the reports)
 
@@ -400,69 +400,101 @@ with tab_tract:
         rows.append({"Feature": FEATURE_LABELS[f], "This tract": t[f],
                      "Place median": scored[f].median(), "Percentile": pct})
     comp = pd.DataFrame(rows)
-    # --- where the tract stands on the score and each factor: every tract in the area as a dot ---
-    st.subheader("Where this tract stands")
-    st.caption("Each dot is a tract in this area. Blue = this tract, dark line = median tract. Hover a dot for its name.")
-    strip_rows = [("foodprint_score", "FoodPrint Score (0-100)", 1)] + [
-        (f, f"{INTERVENTIONS_ALL[f]['short']} ({charts.UNITS[f]})", 100 if f == "limited_share" else 1) for f in FEATURES]
-    fs = make_subplots(rows=len(strip_rows), cols=1, subplot_titles=[r[1] for r in strip_rows], vertical_spacing=0.1)
+    # --- where the tract stands: one chart, every measure on the same percentile axis ---
+    st.markdown("#### Where this tract stands")
+    st.caption("Each row compares this tract (blue) with every other tract in the area (grey). "
+               "Further right = worse. Factors in the shaded zone drive the recommendation. Hover a dot for details.")
+    measures = [("foodprint_score", "FoodPrint Score", lambda v: f"{v:.0f}/100")] + \
+               [(f, INTERVENTIONS_ALL[f]["short"], lambda v, f=f: fmt_value(f, v)) for f in FEATURES]
+    n_m = len(measures)
+    fs = go.Figure()
+    fs.add_vrect(x0=70, x1=101, fillcolor="rgba(42,120,214,0.10)", line_width=0)
+    fs.add_vline(x=50, line_dash="dot", line_color="rgba(150,150,145,0.9)")
     rng = np.random.default_rng(0)
-    for i, (col, _, mult) in enumerate(strip_rows, 1):
+    for i, (col, label, fmt) in enumerate(measures):
         d = scored[["tract_name", col]].dropna()
-        fs.add_trace(go.Scatter(x=d[col] * mult, y=rng.uniform(-0.3, 0.3, len(d)), mode="markers",
-                                marker=dict(size=7, color="#d6d5cf"), text=d["tract_name"],
-                                hovertemplate="%{text}<br>%{x:.1f}<extra></extra>", showlegend=False), row=i, col=1)
-        med = d[col].median() * mult
-        fs.add_trace(go.Scatter(x=[med, med], y=[-0.45, 0.45], mode="lines", line=dict(color="#52514e", width=2),
-                                hovertemplate=f"Median tract: {med:.1f}<extra></extra>", showlegend=False), row=i, col=1)
-        if pd.notna(t[col]):
-            v = t[col] * mult
-            right = v > d[col].min() * mult + 0.85 * (d[col].max() - d[col].min()) * mult
-            fs.add_trace(go.Scatter(x=[v], y=[0], mode="markers+text", text=[f"<b>{v:.1f}</b>"],
-                                    textposition="middle left" if right else "middle right",
-                                    marker=dict(size=14, color=BLUE, line=dict(color="white", width=2)),
-                                    textfont=dict(size=12, color=INK),
-                                    hovertemplate=f"{t['tract_name']}<br>%{{x:.1f}}<extra></extra>",
-                                    showlegend=False), row=i, col=1)
-        fs.update_yaxes(visible=False, range=[-0.5, 0.5], row=i, col=1)
-        fs.update_xaxes(showgrid=False, zeroline=False, row=i, col=1)
-    fs.update_layout(height=460, margin=dict(l=0, r=10, t=30, b=0), plot_bgcolor="rgba(0,0,0,0)")
-    fs.update_annotations(font_size=12, x=0, xanchor="left")
+        pct = d[col].rank(pct=True, method="average") * 100
+        yi = n_m - 1 - i
+        fs.add_trace(go.Scatter(
+            x=pct, y=yi + rng.uniform(-0.18, 0.18, len(d)), mode="markers",
+            marker=dict(size=7, color="rgba(150,150,145,0.45)"),
+            customdata=np.c_[d["tract_name"], [fmt(v) for v in d[col]]],
+            hovertemplate="%{customdata[0]}<br>%{customdata[1]}<extra></extra>", showlegend=False))
+        if t.name in pct.index:
+            fs.add_trace(go.Scatter(
+                x=[pct.loc[t.name]], y=[yi], mode="markers+text", text=[f"<b>{fmt(t[col])}</b>"],
+                textposition="top center", textfont=dict(size=13),
+                marker=dict(size=16, color=BLUE, line=dict(width=2, color="white")),
+                hovertemplate=f"{t['tract_name']}<br>{fmt(t[col])}<extra></extra>", showlegend=False))
+    fs.add_annotation(x=50, y=n_m - 0.45, text="median tract", showarrow=False, yanchor="bottom",
+                      font=dict(size=11, color="rgba(150,150,145,1)"))
+    fs.add_annotation(x=85, y=n_m - 0.45, text="worst 30%", showarrow=False, yanchor="bottom",
+                      font=dict(size=11, color=BLUE))
+    fs.update_layout(
+        height=110 + 62 * n_m, margin=dict(l=0, r=10, t=10, b=0), plot_bgcolor="rgba(0,0,0,0)",
+        yaxis=dict(tickvals=list(range(n_m)), ticktext=[m[1] for m in measures][::-1],
+                   showgrid=False, zeroline=False, range=[-0.6, n_m - 0.1]),
+        xaxis=dict(range=[-2, 102], title="Percentile within the area (100 = worst)",
+                   tickvals=[0, 25, 50, 75, 100], showgrid=False, zeroline=False))
     st.plotly_chart(fs, width="stretch")
 
-    # --- health beyond income: actual vs predicted, plus the area's validation ---
-    st.subheader("Health beyond income")
-    g1, g2 = st.columns([1.1, 1])
+    # --- health beyond income (left) and whether the score is trusted here (right) ---
     oc = outcome
-    sc2 = scored.dropna(subset=[f"{oc}_pct", f"excess_{oc}"]).copy()
-    sc2["pred"] = sc2[f"{oc}_pct"] - sc2[f"excess_{oc}"]
-    lo = float(min(sc2["pred"].min(), sc2[f"{oc}_pct"].min())) - 1
-    hi = float(max(sc2["pred"].max(), sc2[f"{oc}_pct"].max())) + 1
-    me_a = float(t[f"{oc}_pct"]); me_p = me_a - float(t[f"excess_{oc}"])
-    fg = go.Figure()
-    fg.add_trace(go.Scatter(x=[lo, hi, lo], y=[lo, hi, hi], fill="toself", fillcolor="rgba(205,226,251,0.4)",
-                            line=dict(width=0), hoverinfo="skip", showlegend=False))
-    fg.add_trace(go.Scatter(x=[lo, hi], y=[lo, hi], mode="lines", line=dict(color="#52514e", width=1),
-                            hoverinfo="skip", showlegend=False))
-    fg.add_trace(go.Scatter(x=sc2["pred"], y=sc2[f"{oc}_pct"], mode="markers", marker=dict(size=7, color="#b4b3ad"),
-                            text=sc2["tract_name"], showlegend=False,
-                            hovertemplate="%{text}<br>predicted %{x:.1f}%, actual %{y:.1f}%<extra></extra>"))
-    fg.add_trace(go.Scatter(x=[me_p, me_p], y=[me_p, me_a], mode="lines", line=dict(color=BLUE, width=2),
-                            hoverinfo="skip", showlegend=False))
-    fg.add_trace(go.Scatter(x=[me_p], y=[me_a], mode="markers+text", text=[f"<b>{t[f'excess_{oc}']:+.1f} pts</b>"],
-                            textposition="middle right", marker=dict(size=14, color=BLUE, line=dict(color="white", width=2)),
-                            hovertemplate=f"{t['tract_name']}<br>predicted %{{x:.1f}}%, actual %{{y:.1f}}%<extra></extra>",
-                            showlegend=False))
-    fg.add_annotation(text="Worse than income predicts", x=lo, y=hi, xanchor="left", yanchor="top",
-                      showarrow=False, font=dict(size=11, color="#52514e"))
-    fg.update_layout(height=380, margin=dict(l=0, r=0, t=30, b=0), plot_bgcolor="rgba(0,0,0,0)",
-                     title=dict(text=f"{oc.capitalize()}: actual vs. predicted from income", font=dict(size=13)),
-                     xaxis=dict(title="Predicted from income and poverty (%)", range=[lo, hi], showgrid=False),
-                     yaxis=dict(title=f"Actual {oc} (%)", range=[lo, hi], showgrid=False))
-    g1.plotly_chart(fg, width="stretch")
-    g2.image(charts.forest(results, place), width="stretch")
-    g2.caption("Filled dot = the score adds predictive power beyond income in this area. "
-               "Open dot = it does not.")
+    g1, g2 = st.columns(2, gap="large")
+    with g1:
+        st.markdown(f"#### {oc.capitalize()} beyond income")
+        st.caption(f"Each dot is a tract. Above the line = more {oc} than income and poverty predict.")
+        sc2 = scored.dropna(subset=[f"{oc}_pct", f"excess_{oc}"]).copy()
+        sc2["pred"] = sc2[f"{oc}_pct"] - sc2[f"excess_{oc}"]
+        lo = float(min(sc2["pred"].min(), sc2[f"{oc}_pct"].min())) - 1
+        hi = float(max(sc2["pred"].max(), sc2[f"{oc}_pct"].max())) + 1
+        me_a = float(t[f"{oc}_pct"]); me_p = me_a - float(t[f"excess_{oc}"])
+        fg = go.Figure()
+        fg.add_trace(go.Scatter(x=[lo, hi, lo], y=[lo, hi, hi], fill="toself", fillcolor="rgba(42,120,214,0.08)",
+                                line=dict(width=0), hoverinfo="skip", showlegend=False))
+        fg.add_trace(go.Scatter(x=[lo, hi], y=[lo, hi], mode="lines", line=dict(color="rgba(150,150,145,0.9)", width=1),
+                                hoverinfo="skip", showlegend=False))
+        fg.add_trace(go.Scatter(x=sc2["pred"], y=sc2[f"{oc}_pct"], mode="markers",
+                                marker=dict(size=7, color="rgba(150,150,145,0.55)"), text=sc2["tract_name"],
+                                hovertemplate="%{text}<br>predicted %{x:.1f}%, actual %{y:.1f}%<extra></extra>",
+                                showlegend=False))
+        fg.add_trace(go.Scatter(x=[me_p, me_p], y=[me_p, me_a], mode="lines", line=dict(color=BLUE, width=2),
+                                hoverinfo="skip", showlegend=False))
+        fg.add_trace(go.Scatter(x=[me_p], y=[me_a], mode="markers+text",
+                                text=[f"<b>{t[f'excess_{oc}']:+.1f} pts</b>"], textposition="middle right",
+                                textfont=dict(size=13), marker=dict(size=15, color=BLUE, line=dict(color="white", width=2)),
+                                hovertemplate=f"{t['tract_name']}<br>predicted %{{x:.1f}}%, actual %{{y:.1f}}%<extra></extra>",
+                                showlegend=False))
+        fg.update_layout(height=360, margin=dict(l=0, r=10, t=10, b=0), plot_bgcolor="rgba(0,0,0,0)",
+                         xaxis=dict(title="Predicted from income and poverty (%)", range=[lo, hi], showgrid=False),
+                         yaxis=dict(title=f"Actual {oc} (%)", range=[lo, hi], showgrid=False))
+        st.plotly_chart(fg, width="stretch")
+    with g2:
+        st.markdown(f"#### Is the score trusted in {names[place]}?")
+        st.caption("Effect of the score beyond income, with 95% interval. Filled = passed, open = not passed.")
+        rr = results[results["city"] == place].set_index("outcome")
+        ff = go.Figure()
+        ff.add_vline(x=0, line_dash="dot", line_color="rgba(150,150,145,0.9)")
+        for oc_key, lab in [("diabetes_pct", "Diabetes"), ("obesity_pct", "Obesity")]:
+            if oc_key not in rr.index:
+                continue
+            x = rr.loc[oc_key]; ok = bool((x["sem_lo"] > 0) and (x["loo_gain_pct"] > 0))
+            col = BLUE if ok else "rgba(150,150,145,1)"
+            ff.add_trace(go.Scatter(x=[x["sem_lo"], x["sem_hi"]], y=[lab, lab], mode="lines",
+                                    line=dict(color=col, width=3), hoverinfo="skip", showlegend=False))
+            ff.add_trace(go.Scatter(x=[x["sem_coef"]], y=[lab], mode="markers",
+                                    marker=dict(size=15, color=col, symbol="circle" if ok else "circle-open",
+                                                line=dict(width=3, color=col)),
+                                    hovertemplate=f"{lab}: %{{x:+.2f}} pts per SD "
+                                                  f"(95% CI {x['sem_lo']:.2f} to {x['sem_hi']:.2f})<extra></extra>",
+                                    showlegend=False))
+            ff.add_annotation(x=x["sem_hi"], y=lab, text="passed" if ok else "not passed", xanchor="left",
+                              xshift=8, showarrow=False, font=dict(size=12))
+        ff.update_layout(height=360, margin=dict(l=0, r=10, t=10, b=0), plot_bgcolor="rgba(0,0,0,0)",
+                         xaxis=dict(title="Points of prevalence per SD of score, beyond income",
+                                    range=[-1.1, 3.0], showgrid=False, zeroline=False),
+                         yaxis=dict(showgrid=False, range=[-0.6, 1.6]))
+        st.plotly_chart(ff, width="stretch")
     if t["median_hh_income"] > 150000 and t["foodprint_score"] > 70:
         st.caption("Note: this is a high-income tract with a high score. Distance-based features can "
                    "overstate the problem where most households own a car.")
@@ -536,7 +568,7 @@ with tab_evidence:
 # ---------- tab 5: data and limits ----------
 with tab_about:
     st.subheader("How the score works")
-    st.image(charts.method_flow(), width="stretch")
+    st.image(charts.method_flow(transparent=True), width="stretch")
     left, right = st.columns(2)
     left.subheader("Data (all public, no patient data)")
     left.markdown(
